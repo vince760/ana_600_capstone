@@ -295,7 +295,7 @@ export function ResultsPanel({ result }: ResultsPanelProps) {
               )}
             </p>
             <p className="mt-3 text-xs italic text-text-muted">
-              AI-generated — not financial advice.
+              AI-generated - not financial advice.
             </p>
           </div>
         )}

@@ -240,9 +240,9 @@ export const mockRisk: RiskOutput = {
   explanation:
     'Your financial risk score is currently at 62 out of 100 (medium risk). The primary driver is your discretionary spending ratio, which at 34% exceeds the recommended 30% threshold. However, your emergency buffer of 2.4 months and consistent savings rate of 12% are working in your favor. Your income has shown some variability recently, which is a factor worth monitoring.',
   recommendations: [
-    'Consider reducing discretionary spending by $150/month to bring the ratio below 30% — this could lower your risk score by an estimated 8-10 points.',
+    'Consider reducing discretionary spending by $150/month to bring the ratio below 30% - this could lower your risk score by an estimated 8-10 points.',
     'Continue building your emergency fund toward 3 months of expenses to further strengthen your safety net.',
-    'Review recurring subscriptions for potential savings — the data suggests $45/month in underutilized services.',
+    'Review recurring subscriptions for potential savings - the data suggests $45/month in underutilized services.',
   ],
 }
 

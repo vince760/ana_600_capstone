@@ -22,7 +22,7 @@ export function ExplanationCard({
         </div>
         <p className="text-sm leading-relaxed text-text-primary">{explanation}</p>
         <p className="mt-3 text-xs italic text-text-muted">
-          AI-generated — not financial advice.
+          AI-generated - not financial advice.
         </p>
       </div>
 
