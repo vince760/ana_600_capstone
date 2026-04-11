@@ -85,6 +85,63 @@ src/
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
 
-## Disclaimer
 
-This application provides financial guidance for informational purposes only. It is not a licensed financial advisor. All projections are estimated based on current data and are not guaranteed.
+
+## Backend 
+
+The `backend/` directory contains the SHED (Survey of Household Economics and Decisionmaking) data analysis pipeline. This pipeline trains a Random Forest model on Federal Reserve survey data to identify the key indicators of consumer financial distress.
+
+### What it does
+
+1. Loads the SHED 2024 public dataset (12,295 respondents, 751 variables)
+2. Selects and renames 78 distress-relevant variables using the official SHED codebook definitions
+3. Encodes the target variable (B2 — "How well are you managing financially?") using the codebook's numeric codes
+4. Converts all feature variables to numeric using codebook-defined scales
+5. Handles missing values based on documented survey skip logic (conditional questions, split-ballot design)
+6. Trains a Random Forest Regressor to learn which features predict financial distress
+7. Outputs ranked feature importances — the distress signals learned from the data
+
+### Key findings
+
+The model identified the top predictors of financial distress (R-squared: 0.64):
+
+| Rank | Feature | Importance |
+|------|---------|------------|
+| 1 | Money left at end of month | 26.5% |
+| 2 | Max emergency expense from savings | 19.9% |
+| 3 | Subjective financial stress ("just getting by") | 14.9% |
+| 4 | Finances vs. year ago | 4.7% |
+| 5 | Financial hopelessness | 3.4% |
+
+### Backend setup
+
+**Prerequisites:** Python 3.9+
+
+```bash
+cd backend
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# macOS/Linux
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+### Running the pipeline
+
+```bash
+python distressed_signals.py
+```
+
+The script outputs the full pipeline results to the console including target distribution, missing value handling, model performance, and all 67 ranked feature importances.
+
+### Data
+
+The SHED 2024 public dataset (`data/public2024.csv`) and codebook (`data/SHED_2024codebook.pdf`) are sourced from the Federal Reserve Board of Governors:
+- Dataset: https://www.federalreserve.gov/consumerscommunities/shed.htm
+- Citation: Board of Governors of the Federal Reserve System, Survey of Household Economics and Decisionmaking [dataset] (Washington: Board of Governors, 2025)
+
+

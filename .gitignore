@@ -39,3 +39,12 @@ CLAUDE.md
 
 # figma
 figma files/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# backend
+backend/eda_output/
