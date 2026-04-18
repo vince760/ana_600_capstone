@@ -95,11 +95,11 @@ The `backend/` directory contains the SHED (Survey of Household Economics and De
 
 1. Loads the SHED 2024 public dataset (12,295 respondents, 751 variables)
 2. Selects and renames 78 distress-relevant variables using the official SHED codebook definitions
-3. Encodes the target variable (B2 — "How well are you managing financially?") using the codebook's numeric codes
+3. Encodes the target variable (B2  - "How well are you managing financially?") using the codebook's numeric codes
 4. Converts all feature variables to numeric using codebook-defined scales
 5. Handles missing values based on documented survey skip logic (conditional questions, split-ballot design)
 6. Trains a Random Forest Regressor to learn which features predict financial distress
-7. Outputs ranked feature importances — the distress signals learned from the data
+7. Outputs ranked feature importances  - the distress signals learned from the data
 
 ### Key findings
 

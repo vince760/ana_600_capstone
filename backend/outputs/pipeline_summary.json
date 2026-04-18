@@ -1,0 +1,117 @@
+{
+  "dataset": "SCF 2022 Extract",
+  "households": 22975,
+  "features": 35,
+  "feature_names": [
+    "INCOME",
+    "DEBT",
+    "LIQ",
+    "ASSET",
+    "NETWORTH",
+    "CCBAL",
+    "CONSPAY",
+    "FOODHOME",
+    "FOODAWAY",
+    "AGE",
+    "FINLIT",
+    "DTI",
+    "PAYMENT_TO_INC",
+    "LIQ_TO_INC",
+    "FOOD_RATIO",
+    "CC_TO_INC",
+    "EDUC_1",
+    "EDUC_2",
+    "EDUC_3",
+    "EDUC_4",
+    "EDUC_5",
+    "EDUC_6",
+    "EDUC_7",
+    "EDUC_8",
+    "EDUC_9",
+    "EDUC_10",
+    "EDUC_11",
+    "EDUC_12",
+    "EDUC_13",
+    "EDUC_14",
+    "FAMSTRUCT_2",
+    "FAMSTRUCT_3",
+    "FAMSTRUCT_4",
+    "FAMSTRUCT_5",
+    "HOUSECL_2"
+  ],
+  "target": "EXPENSHILO (binary: spending > income)",
+  "target_positive_rate": 0.49484221980413495,
+  "train_size": 18380,
+  "test_size": 4595,
+  "best_model": "Logistic Regression",
+  "best_accuracy": 0.5573449401523395,
+  "best_auc_roc": 0.5928846074368807,
+  "best_cv_auc_mean": 0.5956851422761604,
+  "best_cv_auc_std": 0.008049885072969457,
+  "best_f1": 0.5758965804837365,
+  "best_brier": 0.24415575797145403,
+  "calibrated_best_brier": 0.24658573530908645,
+  "calibrated_best_auc": 0.5875462525351451,
+  "calibrated_best_accuracy": 0.5588683351468988,
+  "shap_model": "Random Forest",
+  "top_5_shap_features": [
+    {
+      "Feature": "FOOD_RATIO",
+      "Mean |SHAP|": 0.025239638060403285
+    },
+    {
+      "Feature": "FOODHOME",
+      "Mean |SHAP|": 0.022580632052291258
+    },
+    {
+      "Feature": "LIQ",
+      "Mean |SHAP|": 0.014462255480022421
+    },
+    {
+      "Feature": "CONSPAY",
+      "Mean |SHAP|": 0.014082459113393377
+    },
+    {
+      "Feature": "PAYMENT_TO_INC",
+      "Mean |SHAP|": 0.013963037141735267
+    }
+  ],
+  "all_model_results": {
+    "Logistic Regression": {
+      "accuracy": 0.5573449401523395,
+      "auc_roc": 0.5928846074368807,
+      "cv_auc_mean": 0.5956851422761604,
+      "cv_auc_std": 0.008049885072969457,
+      "f1": 0.5758965804837365,
+      "f1_macro": 0.5564963102691782,
+      "brier": 0.24415575797145403
+    },
+    "Random Forest": {
+      "accuracy": 0.5697497279651795,
+      "auc_roc": 0.5947951845418804,
+      "cv_auc_mean": 0.5920934709045373,
+      "cv_auc_std": 0.0036804417435909145,
+      "f1": 0.5762057877813505,
+      "f1_macro": 0.569649855216642,
+      "brier": 0.2470825246264802
+    },
+    "XGBoost": {
+      "accuracy": 0.5590859630032644,
+      "auc_roc": 0.5878181088130345,
+      "cv_auc_mean": 0.5799045988881855,
+      "cv_auc_std": 0.008205075523171517,
+      "f1": 0.5627967198964178,
+      "f1_macro": 0.5590541984029938,
+      "brier": 0.2643129425705379
+    },
+    "Neural Network (MLP)": {
+      "accuracy": 0.5196953210010882,
+      "auc_roc": 0.5279945613578102,
+      "cv_auc_mean": 0.5283808941891063,
+      "cv_auc_std": 0.018344115683697895,
+      "f1": 0.4939234120614538,
+      "f1_macro": 0.5184464854881715,
+      "brier": 0.4130188082990679
+    }
+  }
+}

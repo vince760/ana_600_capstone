@@ -148,7 +148,7 @@ print()
 #
 # B2 (managing_financially) is the respondent directly telling us how well
 # they are managing financially. It's a 4-point ordinal scale defined by
-# the survey instrument itself — we just convert the text labels back to
+# the survey instrument itself  - we just convert the text labels back to
 # the codebook's numeric codes:
 #   1 = Finding it difficult to get by (highest distress)
 #   2 = Just getting by
@@ -182,7 +182,7 @@ print()
 # Step 3: Encode feature variables to numeric
 #
 # Converting text labels back to the codebook's own numeric codes.
-# These are not subjective values — they are the survey instrument's
+# These are not subjective values  - they are the survey instrument's
 # defined coding scheme. "Don't know" and "Does not apply" values
 # are set to NaN so the model treats them as missing.
 # ---------------------------------------------------------------------------
@@ -377,7 +377,7 @@ for col in NUMERIC_COLS:
 # ---------------------------------------------------------------------------
 # Step 4: Handle missing values based on survey skip logic
 #
-# Missing values in SHED are NOT random — they result from conditional
+# Missing values in SHED are NOT random  - they result from conditional
 # survey logic. The codebook documents exactly when each question is
 # skipped. We fill based on what "not asked" means for each variable.
 # ---------------------------------------------------------------------------
@@ -406,7 +406,7 @@ for col, reason in FILL_ZERO.items():
 
 print()
 
-# Group 2: Bill payment columns — missing means they paid all bills (EF5C = Yes)
+# Group 2: Bill payment columns  - missing means they paid all bills (EF5C = Yes)
 BILL_COLS = ["bill_rent_mortgage", "bill_utilities", "bill_phone_internet", "bill_car_payment"]
 for col in BILL_COLS:
     before = distress_df[col].isna().sum()
@@ -428,11 +428,11 @@ distress_df["frequency_carry_cc_balance"] = distress_df["frequency_carry_cc_bala
 print(f"  frequency_carry_cc_balance: filled {before} NaN -> 0 (no credit card, C2A = No)")
 
 # K0: only asked if not retired. Retired people -> NaN stays (not applicable)
-# But "Don't know" responses are also NaN here — leave as-is for the model.
+# But "Don't know" responses are also NaN here  - leave as-is for the model.
 
 print()
 
-# Group 4: Dollar amounts — not applicable means $0
+# Group 4: Dollar amounts  - not applicable means $0
 before_rent = distress_df["monthly_rent_amount"].isna().sum()
 distress_df["monthly_rent_amount"] = distress_df["monthly_rent_amount"].fillna(0)
 print(f"  monthly_rent_amount: filled {before_rent} NaN -> 0 (not a renter)")
@@ -443,7 +443,7 @@ print(f"  monthly_mortgage_amount: filled {before_mort} NaN -> 0 (no mortgage)")
 
 print()
 
-# Group 5: Random split-ballot (X12 concern variables) — stay NaN
+# Group 5: Random split-ballot (X12 concern variables)  - stay NaN
 # These respondents were randomly not asked. No way to infer values.
 # Random Forest can handle NaN natively.
 SPLIT_BALLOT = [
@@ -530,7 +530,7 @@ print(f"  Mean Absolute Error: {mae:.4f}")
 print(f"  (Target scale: 1-4, so MAE of {mae:.2f} means predictions are off by ~{mae:.2f} levels on average)")
 print()
 
-# Feature importances — what the model learned drives distress
+# Feature importances  - what the model learned drives distress
 importances = pd.Series(rf.feature_importances_, index=feature_cols)
 importances = importances.sort_values(ascending=False)
 
