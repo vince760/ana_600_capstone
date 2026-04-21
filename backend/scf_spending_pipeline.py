@@ -131,16 +131,12 @@ RAW_FEATURES = {
     'DEBT': 'Total Debt',
     'LIQ': 'Liquid Assets',
     'ASSET': 'Total Assets',
-    'NETWORTH': 'Net Worth',
     'CCBAL': 'Credit Card Balance',
     'CONSPAY': 'Monthly Consumer Debt Payments',
     'FOODHOME': 'Food Spending (Home)',
     'FOODAWAY': 'Food Spending (Away)',
     'AGE': 'Age',
-    'EDUC': 'Education Level',
     'FAMSTRUCT': 'Family Structure',
-    'HOUSECL': 'Home Ownership',
-    'FINLIT': 'Financial Literacy Score',
 }
 
 # Check which features exist in the dataset
@@ -173,24 +169,6 @@ if 'CONSPAY' in df.columns and 'INCOME' in df.columns:
     )
     print("  PAYMENT_TO_INC: derived from (CONSPAY * 12) / INCOME")
 
-# Liquid Assets to Income Ratio
-if 'LIQ' in df.columns and 'INCOME' in df.columns:
-    df['LIQ_TO_INC'] = np.where(
-        df['INCOME'] > 0,
-        df['LIQ'] / df['INCOME'],
-        0
-    )
-    print("  LIQ_TO_INC: derived from LIQ / INCOME")
-
-# Food Spending Ratio
-if 'FOODHOME' in df.columns and 'FOODAWAY' in df.columns and 'INCOME' in df.columns:
-    df['FOOD_RATIO'] = np.where(
-        df['INCOME'] > 0,
-        (df['FOODHOME'] + df['FOODAWAY']) / df['INCOME'],
-        0
-    )
-    print("  FOOD_RATIO: derived from (FOODHOME + FOODAWAY) / INCOME")
-
 # CC Balance to Income Ratio
 if 'CCBAL' in df.columns and 'INCOME' in df.columns:
     df['CC_TO_INC'] = np.where(
@@ -200,10 +178,77 @@ if 'CCBAL' in df.columns and 'INCOME' in df.columns:
     )
     print("  CC_TO_INC: derived from CCBAL / INCOME")
 
+# ---------------------------------------------------------------------------
+# Interaction features
+# ---------------------------------------------------------------------------
+# Added to test whether cross-feature signals improve Logistic Regression
+# (our best global model), which is linear by default and cannot learn
+# interactions on its own. Tree models (RF, XGBoost) can already capture
+# interactions through splits, so these features are primarily a test for LR.
+#
+# Each interaction is grounded in a specific hypothesis from our diagnostics:
+#   - age-stratified SHAP: middle-aged drivers differ from old drivers
+#   - PCA: wealth (PC1) and credit burden (PC2) are orthogonal axes
+#   - feature importance: FOODHOME is the #1 driver across all methods
+# ---------------------------------------------------------------------------
+
+# FOODHOME_X_AGE: FOODHOME's #1-ranked signal may carry different risk
+# weight across life stages (variable food costs for middle-aged families
+# vs. more fixed patterns for older households).
+if {'FOODHOME', 'AGE'}.issubset(df.columns):
+    df['FOODHOME_X_AGE'] = df['FOODHOME'] * df['AGE']
+    print("  FOODHOME_X_AGE: derived from FOODHOME * AGE")
+
+# DTI_X_AGE: identical DTI levels mean different things at different life
+# stages. High DTI at 35 typically reflects mortgage + career-peak debt;
+# high DTI at 70 reflects late-life financial stress.
+if {'DTI', 'AGE'}.issubset(df.columns):
+    df['DTI_X_AGE'] = df['DTI'] * df['AGE']
+    print("  DTI_X_AGE: derived from DTI * AGE")
+
+# LIQ_SQUEEZE: liquid assets are only a real cushion when debt burden is
+# low. This interaction shrinks LIQ proportionally as DTI rises (capped at
+# DTI=1 to prevent negative values from extreme DTI outliers), capturing
+# "cash reserve, net of the debt drag on it". Motivated by PCA showing
+# PC1 (wealth) and PC2 (credit burden) as orthogonal axes that the model
+# should jointly consider.
+if {'LIQ', 'DTI'}.issubset(df.columns):
+    df['LIQ_SQUEEZE'] = df['LIQ'] * (1 - df['DTI'].clip(0, 1))
+    print("  LIQ_SQUEEZE: derived from LIQ * (1 - DTI.clip(0, 1))")
+
+# FOOD_DISCRETIONARY: share of total food spending on eating out. A
+# lifestyle signal independent of absolute spending levels; two households
+# spending the same total on food may differ sharply on this ratio and
+# therefore on their flexibility to cut spending when stressed. The +1 in
+# the denominator prevents divide-by-zero for households with no food
+# spending recorded.
+if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
+    df['FOOD_DISCRETIONARY'] = df['FOODAWAY'] / (df['FOODHOME'] + df['FOODAWAY'] + 1)
+    print("  FOOD_DISCRETIONARY: derived from FOODAWAY / (FOODHOME + FOODAWAY + 1)")
+
+# Age group: labeled categorical for EDA/plots only (not a model feature).
+# Numeric AGE is retained in feature_cols.
+if 'AGE' in df.columns:
+    df['age_group'] = pd.cut(
+        df['AGE'],
+        bins=[0, 18, 49, 100],
+        labels=['young', 'middle_aged', 'old'],
+        include_lowest=True,
+    )
+    group_counts = df['age_group'].value_counts().reindex(['young', 'middle_aged', 'old'])
+    print("  age_group: binned from AGE (0-18 young, 19-49 middle_aged, 50-100 old)")
+    for label, count in group_counts.items():
+        pct = count / len(df) * 100
+        print(f"    {label}: {count} ({pct:.1f}%)")
+
 print()
 
 # --- Assemble final feature set ---
-ENGINEERED = ['DTI', 'PAYMENT_TO_INC', 'LIQ_TO_INC', 'FOOD_RATIO', 'CC_TO_INC']
+ENGINEERED = [
+    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC',
+    # Interaction features (see derivation section above for hypotheses)
+    'FOODHOME_X_AGE', 'DTI_X_AGE', 'LIQ_SQUEEZE', 'FOOD_DISCRETIONARY',
+]
 all_features = list(available_raw.keys()) + [f for f in ENGINEERED if f in df.columns]
 
 # Remove any features not in the dataframe
@@ -228,7 +273,7 @@ for col in feature_cols:
         print(f"  Filled {na_count} NaN in {col} with median ({median_val:.2f})")
 
 # Cap extreme outliers at 99th percentile for dollar amounts
-dollar_cols = [c for c in feature_cols if c in ['INCOME', 'DEBT', 'LIQ', 'ASSET', 'NETWORTH', 'CCBAL', 'CONSPAY', 'FOODHOME', 'FOODAWAY']]
+dollar_cols = [c for c in feature_cols if c in ['INCOME', 'DEBT', 'LIQ', 'ASSET', 'CCBAL', 'CONSPAY', 'FOODHOME', 'FOODAWAY']]
 for col in dollar_cols:
     p99 = df[col].quantile(0.99)
     clipped = (df[col] > p99).sum()
@@ -237,8 +282,22 @@ for col in dollar_cols:
         print(f"  Capped {clipped} outliers in {col} at 99th percentile (${p99:,.0f})")
 
 # Cap ratio features at reasonable bounds
-ratio_cols = [c for c in feature_cols if c in ['DTI', 'PAYMENT_TO_INC', 'LIQ_TO_INC', 'FOOD_RATIO', 'CC_TO_INC']]
+ratio_cols = [c for c in feature_cols if c in ['DTI', 'PAYMENT_TO_INC', 'CC_TO_INC']]
 for col in ratio_cols:
+    p99 = df[col].quantile(0.99)
+    clipped = (df[col] > p99).sum()
+    if clipped > 0:
+        df[col] = df[col].clip(upper=p99)
+        print(f"  Capped {clipped} outliers in {col} at 99th percentile ({p99:.4f})")
+
+# Cap interaction features at 99th percentile. Products of heavy-tailed
+# inputs (e.g. FOODHOME * AGE) inherit long right tails even after the
+# component features are capped; unbounded interactions can dominate
+# Logistic Regression's scaled feature space.
+interaction_cols = [c for c in feature_cols if c in [
+    'FOODHOME_X_AGE', 'DTI_X_AGE', 'LIQ_SQUEEZE', 'FOOD_DISCRETIONARY',
+]]
+for col in interaction_cols:
     p99 = df[col].quantile(0.99)
     clipped = (df[col] > p99).sum()
     if clipped > 0:
@@ -654,7 +713,7 @@ if len(overspend_idx) > 0:
         for feat in ['INCOME', 'DEBT', 'LIQ', 'DTI', 'CCBAL', 'AGE']:
             if feat in household.index:
                 val = household[feat]
-                if feat in ['DTI', 'PAYMENT_TO_INC', 'LIQ_TO_INC', 'FOOD_RATIO', 'CC_TO_INC']:
+                if feat in ['DTI', 'PAYMENT_TO_INC', 'CC_TO_INC']:
                     print(f"    {feat}: {val:.4f}")
                 elif feat == 'AGE':
                     print(f"    {feat}: {int(val)}")
