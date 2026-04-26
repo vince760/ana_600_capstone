@@ -3,7 +3,7 @@ pca_analysis.py
 ===============
 PCA diagnostic on the SCF 2022 spending pipeline features.
 
-Loads the same 19 features used by scf_spending_pipeline.py, imputes and
+Loads the same 14 features used by scf_spending_pipeline.py, imputes and
 standardizes them, then runs PCA. Outputs:
   - scree plot (variance explained per component)
   - cumulative variance curve (helps pick n_components)
@@ -77,12 +77,12 @@ print("=" * 70)
 df['target'] = (df['EXPENSHILO'] == 1).astype(int)
 
 RAW_FEATURES = [
-    'INCOME', 'DEBT', 'LIQ', 'ASSET', 'NETWORTH', 'CCBAL', 'CONSPAY',
-    'FOODHOME', 'FOODAWAY', 'AGE', 'FAMSTRUCT',
+    'INCOME', 'DEBT', 'LIQ', 'CONSPAY',
+    'FOODHOME', 'FOODAWAY', 'KIDS',
 ]
 available_raw = [c for c in RAW_FEATURES if c in df.columns]
 
-# Derived features
+# Derived features (mirror scf_spending_pipeline.py)
 if 'DEBT2INC' in df.columns:
     df['DTI'] = df['DEBT2INC']
 elif {'DEBT', 'INCOME'}.issubset(df.columns):
@@ -93,18 +93,24 @@ if {'CONSPAY', 'INCOME'}.issubset(df.columns):
         df['INCOME'] > 0, (df['CONSPAY'] * 12) / df['INCOME'], 0
     )
 
-if {'LIQ', 'INCOME'}.issubset(df.columns):
-    df['LIQ_TO_INC'] = np.where(df['INCOME'] > 0, df['LIQ'] / df['INCOME'], 0)
-
-if {'FOODHOME', 'FOODAWAY', 'INCOME'}.issubset(df.columns):
-    df['FOOD_RATIO'] = np.where(
-        df['INCOME'] > 0, (df['FOODHOME'] + df['FOODAWAY']) / df['INCOME'], 0
-    )
-
 if {'CCBAL', 'INCOME'}.issubset(df.columns):
     df['CC_TO_INC'] = np.where(df['INCOME'] > 0, df['CCBAL'] / df['INCOME'], 0)
 
-ENGINEERED = ['DTI', 'PAYMENT_TO_INC', 'LIQ_TO_INC', 'FOOD_RATIO', 'CC_TO_INC']
+# IS_OLD and interaction features (mirror pipeline)
+if 'AGE' in df.columns:
+    df['IS_OLD'] = (df['AGE'] >= 40).astype(int)
+if {'FOODHOME', 'IS_OLD'}.issubset(df.columns):
+    df['FOODHOME_X_OLD'] = df['FOODHOME'] * df['IS_OLD']
+if {'DTI', 'IS_OLD'}.issubset(df.columns):
+    df['DTI_X_OLD'] = df['DTI'] * df['IS_OLD']
+if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
+    df['FOOD_DISCRETIONARY'] = df['FOODAWAY'] / (df['FOODHOME'] + df['FOODAWAY'] + 1)
+
+ENGINEERED = [
+    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC',
+    'IS_OLD',
+    'FOODHOME_X_OLD', 'DTI_X_OLD', 'FOOD_DISCRETIONARY',
+]
 feature_cols = available_raw + [f for f in ENGINEERED if f in df.columns]
 
 # Age group (labeled categorical, for plot coloring only)
@@ -121,7 +127,7 @@ for col in feature_cols:
     df[col] = df[col].replace([np.inf, -np.inf], np.nan)
 
 dollar_cols = [c for c in feature_cols if c in [
-    'INCOME', 'DEBT', 'LIQ', 'ASSET', 'NETWORTH', 'CCBAL',
+    'INCOME', 'DEBT', 'LIQ',
     'CONSPAY', 'FOODHOME', 'FOODAWAY',
 ]]
 ratio_cols = [c for c in feature_cols if c in ENGINEERED]

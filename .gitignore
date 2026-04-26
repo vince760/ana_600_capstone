@@ -48,3 +48,4 @@ venv/
 
 # backend
 backend/eda_output/
+backend/outputs/*

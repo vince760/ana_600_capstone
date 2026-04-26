@@ -92,8 +92,8 @@ print("=" * 70)
 df['target'] = (df['EXPENSHILO'] == 1).astype(int)
 
 RAW_FEATURES = [
-    'INCOME', 'DEBT', 'LIQ', 'ASSET', 'NETWORTH', 'CCBAL', 'CONSPAY',
-    'FOODHOME', 'FOODAWAY', 'AGE', 'FAMSTRUCT',
+    'INCOME', 'DEBT', 'LIQ', 'CONSPAY',
+    'FOODHOME', 'FOODAWAY', 'KIDS',
 ]
 available_raw = [c for c in RAW_FEATURES if c in df.columns]
 
@@ -115,7 +115,25 @@ if {'FOODHOME', 'FOODAWAY', 'INCOME'}.issubset(df.columns):
 if {'CCBAL', 'INCOME'}.issubset(df.columns):
     df['CC_TO_INC'] = np.where(df['INCOME'] > 0, df['CCBAL'] / df['INCOME'], 0)
 
-ENGINEERED = ['DTI', 'PAYMENT_TO_INC', 'LIQ_TO_INC', 'FOOD_RATIO', 'CC_TO_INC']
+# Interaction features - mirror scf_spending_pipeline.py derivations exactly
+# so this script ranks the same engineered set the model actually uses.
+# LIQ_TO_INC and FOOD_RATIO above are kept in the run for a head-to-head:
+# we want to see whether they out-rank the four interactions on this split.
+if 'AGE' in df.columns:
+    df['IS_OLD'] = (df['AGE'] >= 40).astype(int)
+if {'FOODHOME', 'IS_OLD'}.issubset(df.columns):
+    df['FOODHOME_X_OLD'] = df['FOODHOME'] * df['IS_OLD']
+if {'DTI', 'IS_OLD'}.issubset(df.columns):
+    df['DTI_X_OLD'] = df['DTI'] * df['IS_OLD']
+if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
+    df['FOOD_DISCRETIONARY'] = df['FOODAWAY'] / (df['FOODHOME'] + df['FOODAWAY'] + 1)
+
+ENGINEERED = [
+    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC',
+    'IS_OLD',
+    'LIQ_TO_INC', 'FOOD_RATIO',
+    'FOODHOME_X_OLD', 'DTI_X_OLD', 'FOOD_DISCRETIONARY',
+]
 feature_cols = available_raw + [f for f in ENGINEERED if f in df.columns]
 
 for col in feature_cols:
@@ -124,7 +142,7 @@ for col in feature_cols:
         df[col] = df[col].fillna(df[col].median())
 
 dollar_cols = [c for c in feature_cols if c in [
-    'INCOME', 'DEBT', 'LIQ', 'ASSET', 'NETWORTH', 'CCBAL',
+    'INCOME', 'DEBT', 'LIQ',
     'CONSPAY', 'FOODHOME', 'FOODAWAY',
 ]]
 for col in dollar_cols + [c for c in feature_cols if c in ENGINEERED]:

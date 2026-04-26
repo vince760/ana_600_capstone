@@ -130,13 +130,10 @@ RAW_FEATURES = {
     'INCOME': 'Total Household Income',
     'DEBT': 'Total Debt',
     'LIQ': 'Liquid Assets',
-    'ASSET': 'Total Assets',
-    'CCBAL': 'Credit Card Balance',
     'CONSPAY': 'Monthly Consumer Debt Payments',
     'FOODHOME': 'Food Spending (Home)',
     'FOODAWAY': 'Food Spending (Away)',
-    'AGE': 'Age',
-    'FAMSTRUCT': 'Family Structure',
+    'KIDS': 'Number of Children in Household',
 }
 
 # Check which features exist in the dataset
@@ -192,29 +189,29 @@ if 'CCBAL' in df.columns and 'INCOME' in df.columns:
 #   - feature importance: FOODHOME is the #1 driver across all methods
 # ---------------------------------------------------------------------------
 
-# FOODHOME_X_AGE: FOODHOME's #1-ranked signal may carry different risk
-# weight across life stages (variable food costs for middle-aged families
-# vs. more fixed patterns for older households).
-if {'FOODHOME', 'AGE'}.issubset(df.columns):
-    df['FOODHOME_X_AGE'] = df['FOODHOME'] * df['AGE']
-    print("  FOODHOME_X_AGE: derived from FOODHOME * AGE")
+# IS_OLD: binary AGE encoding (>= 40). Replaces numeric AGE as the model
+# feature - tested in age_binning_test.py and shown to perform equivalently
+# on CV AUC. We use the binary form because it produces more interpretable
+# SHAP values ("being 40+" is a cleaner narrative than "0.04 SHAP per year").
+# Raw df['AGE'] stays in the frame so age_group binning for plots still works.
+if 'AGE' in df.columns:
+    df['IS_OLD'] = (df['AGE'] >= 40).astype(int)
+    n_old = int(df['IS_OLD'].sum())
+    print(f"  IS_OLD: derived from AGE >= 40 ({n_old} of {len(df)} households)")
 
-# DTI_X_AGE: identical DTI levels mean different things at different life
-# stages. High DTI at 35 typically reflects mortgage + career-peak debt;
-# high DTI at 70 reflects late-life financial stress.
-if {'DTI', 'AGE'}.issubset(df.columns):
-    df['DTI_X_AGE'] = df['DTI'] * df['AGE']
-    print("  DTI_X_AGE: derived from DTI * AGE")
+# FOODHOME_X_OLD: FOODHOME's #1-ranked signal may carry different risk
+# weight across life stages. With binary AGE encoding this becomes
+# "FOODHOME for households age 40+" (zero otherwise).
+if {'FOODHOME', 'IS_OLD'}.issubset(df.columns):
+    df['FOODHOME_X_OLD'] = df['FOODHOME'] * df['IS_OLD']
+    print("  FOODHOME_X_OLD: derived from FOODHOME * IS_OLD")
 
-# LIQ_SQUEEZE: liquid assets are only a real cushion when debt burden is
-# low. This interaction shrinks LIQ proportionally as DTI rises (capped at
-# DTI=1 to prevent negative values from extreme DTI outliers), capturing
-# "cash reserve, net of the debt drag on it". Motivated by PCA showing
-# PC1 (wealth) and PC2 (credit burden) as orthogonal axes that the model
-# should jointly consider.
-if {'LIQ', 'DTI'}.issubset(df.columns):
-    df['LIQ_SQUEEZE'] = df['LIQ'] * (1 - df['DTI'].clip(0, 1))
-    print("  LIQ_SQUEEZE: derived from LIQ * (1 - DTI.clip(0, 1))")
+# DTI_X_OLD: identical DTI levels mean different things at different life
+# stages. With binary AGE encoding this captures "DTI burden specifically
+# for the 40+ cohort", isolating late-career/retirement debt stress.
+if {'DTI', 'IS_OLD'}.issubset(df.columns):
+    df['DTI_X_OLD'] = df['DTI'] * df['IS_OLD']
+    print("  DTI_X_OLD: derived from DTI * IS_OLD")
 
 # FOOD_DISCRETIONARY: share of total food spending on eating out. A
 # lifestyle signal independent of absolute spending levels; two households
@@ -227,7 +224,7 @@ if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
     print("  FOOD_DISCRETIONARY: derived from FOODAWAY / (FOODHOME + FOODAWAY + 1)")
 
 # Age group: labeled categorical for EDA/plots only (not a model feature).
-# Numeric AGE is retained in feature_cols.
+# The model uses IS_OLD (binary, AGE >= 40), not numeric AGE.
 if 'AGE' in df.columns:
     df['age_group'] = pd.cut(
         df['AGE'],
@@ -246,8 +243,9 @@ print()
 # --- Assemble final feature set ---
 ENGINEERED = [
     'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC',
+    'IS_OLD',
     # Interaction features (see derivation section above for hypotheses)
-    'FOODHOME_X_AGE', 'DTI_X_AGE', 'LIQ_SQUEEZE', 'FOOD_DISCRETIONARY',
+    'FOODHOME_X_OLD', 'DTI_X_OLD', 'FOOD_DISCRETIONARY',
 ]
 all_features = list(available_raw.keys()) + [f for f in ENGINEERED if f in df.columns]
 
@@ -273,7 +271,7 @@ for col in feature_cols:
         print(f"  Filled {na_count} NaN in {col} with median ({median_val:.2f})")
 
 # Cap extreme outliers at 99th percentile for dollar amounts
-dollar_cols = [c for c in feature_cols if c in ['INCOME', 'DEBT', 'LIQ', 'ASSET', 'CCBAL', 'CONSPAY', 'FOODHOME', 'FOODAWAY']]
+dollar_cols = [c for c in feature_cols if c in ['INCOME', 'DEBT', 'LIQ', 'CONSPAY', 'FOODHOME', 'FOODAWAY']]
 for col in dollar_cols:
     p99 = df[col].quantile(0.99)
     clipped = (df[col] > p99).sum()
@@ -290,12 +288,12 @@ for col in ratio_cols:
         df[col] = df[col].clip(upper=p99)
         print(f"  Capped {clipped} outliers in {col} at 99th percentile ({p99:.4f})")
 
-# Cap interaction features at 99th percentile. Products of heavy-tailed
-# inputs (e.g. FOODHOME * AGE) inherit long right tails even after the
-# component features are capped; unbounded interactions can dominate
-# Logistic Regression's scaled feature space.
+# Cap interaction features at 99th percentile. FOODHOME_X_OLD inherits
+# FOODHOME's heavy right tail (multiplying by 0/1 doesn't tame it), so
+# unbounded interactions can dominate Logistic Regression's scaled feature
+# space without this cap.
 interaction_cols = [c for c in feature_cols if c in [
-    'FOODHOME_X_AGE', 'DTI_X_AGE', 'LIQ_SQUEEZE', 'FOOD_DISCRETIONARY',
+    'FOODHOME_X_OLD', 'DTI_X_OLD', 'FOOD_DISCRETIONARY',
 ]]
 for col in interaction_cols:
     p99 = df[col].quantile(0.99)
@@ -710,12 +708,14 @@ if len(overspend_idx) > 0:
 
         # Print the household's key financials
         household = X_test.iloc[idx]
-        for feat in ['INCOME', 'DEBT', 'LIQ', 'DTI', 'CCBAL', 'AGE']:
+        for feat in ['INCOME', 'DEBT', 'LIQ', 'DTI', 'IS_OLD', 'KIDS']:
             if feat in household.index:
                 val = household[feat]
                 if feat in ['DTI', 'PAYMENT_TO_INC', 'CC_TO_INC']:
                     print(f"    {feat}: {val:.4f}")
-                elif feat == 'AGE':
+                elif feat == 'IS_OLD':
+                    print(f"    {feat}: {'yes (40+)' if int(val) == 1 else 'no (<40)'}")
+                elif feat == 'KIDS':
                     print(f"    {feat}: {int(val)}")
                 else:
                     print(f"    {feat}: ${val:,.0f}")
