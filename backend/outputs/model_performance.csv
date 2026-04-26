@@ -1,5 +1,0 @@
-,Accuracy,AUC-ROC,CV AUC (mean),CV AUC (std),F1 (Overspending),F1 (Macro),Brier Score
-Logistic Regression,0.5602,0.6058,0.6079,0.0214,0.5757,0.5596,0.242
-Random Forest,0.5778,0.5993,0.5902,0.0083,0.5795,0.5778,0.2471
-XGBoost,0.5613,0.5794,0.5825,0.0148,0.5665,0.5612,0.2685
-Neural Network (MLP),0.5619,0.568,0.5536,0.0193,0.5378,0.5607,0.3411
