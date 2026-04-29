@@ -203,6 +203,53 @@ FEATURE_DICTIONARY = {
         'risk_direction': 'higher',
         'category': 'interaction',
     },
+
+    # ----- Three-bin AGE dummies (under-35 is the reference category) -----
+    'IS_PRIME_EARNING': {
+        'label': 'Prime Earning (35-54)',
+        'description': 'Indicator that the reference person is in the prime earning life stage (age 35-54). Captures peak-income, family-formation years.',
+        'high_means': 'the household head is in their peak earning years.',
+        'low_means': 'the household head is either younger (under 35) or older (55+).',
+        'units': 'binary (0/1)',
+        'risk_direction': 'mixed',
+        'category': 'demographic',
+    },
+    'IS_PRE_RETIREMENT': {
+        'label': 'Pre-Retirement (55+)',
+        'description': 'Indicator that the reference person is age 55 or older. Captures households in the late-career, draw-down, or retirement life stage.',
+        'high_means': 'the household head is 55 or older.',
+        'low_means': 'the household head is under 55.',
+        'units': 'binary (0/1)',
+        'risk_direction': 'mixed',
+        'category': 'demographic',
+    },
+    'FOODHOME_X_PRE_RETIREMENT': {
+        'label': 'Grocery Spending x Pre-Retirement',
+        'description': 'Interaction between grocery spending and the pre-retirement (55+) indicator. Captures how the risk weight of grocery spending shifts for households in the draw-down life stage.',
+        'high_means': 'large grocery spending in a 55+ household.',
+        'low_means': 'low grocery spending, or any grocery spending in a household under 55.',
+        'units': 'interaction (dollars x indicator)',
+        'risk_direction': 'mixed',
+        'category': 'interaction',
+    },
+    'DTI_X_PRE_RETIREMENT': {
+        'label': 'Debt Burden x Pre-Retirement',
+        'description': 'Interaction between debt-to-income ratio and the pre-retirement (55+) indicator. Same DTI carries more risk later in life when fewer earning years remain to absorb the debt.',
+        'high_means': 'high debt-to-income in a 55+ household, indicating late-life financial stress.',
+        'low_means': 'low DTI, or any DTI in a household under 55.',
+        'units': 'interaction (ratio x indicator)',
+        'risk_direction': 'higher',
+        'category': 'interaction',
+    },
+    'INCOME_SHORTFALL': {
+        'label': 'Income Shortfall vs Normal Year',
+        'description': 'Current-year income relative to the household\'s normal-year income, expressed as a fraction of normal income. Positive values mean the household earned less than usual; negative values mean a windfall year. Captures transitory income shocks that the consumption-smoothing literature identifies as a key driver of overspending.',
+        'high_means': 'the household had a bad year (current income well below their normal income).',
+        'low_means': 'the household had a good year (current income above their normal income).',
+        'units': 'ratio (clipped to [-1, 1])',
+        'risk_direction': 'higher',
+        'category': 'ratio',
+    },
 }
 
 

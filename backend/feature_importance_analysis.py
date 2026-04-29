@@ -64,6 +64,48 @@ TEAL = '#2E8B8B'
 GOLD = '#D4930D'
 RED = '#8B2E2E'
 
+# Plain-language labels for plots. Codes that do not appear here fall back
+# to the raw column name. Mirrors outputs/feature_plain_language.csv where
+# possible; covers extra legacy/comparison features used only in this script.
+FEATURE_LABELS = {
+    'INCOME':            'Household Income',
+    'DEBT':              'Total Debt',
+    'LIQ':               'Liquid Assets',
+    'CCBAL':             'Credit Card Balance',
+    'CONSPAY':           'Monthly Consumer Debt Payments',
+    'FOODHOME':          'Food Spending at Home',
+    'FOODAWAY':          'Food Spending Away from Home',
+    'KIDS':              'Number of Children',
+    'AGE':               'Age (Reference Person)',
+    'DTI':               'Debt-to-Income Ratio',
+    'PAYMENT_TO_INC':    'Payment-to-Income Ratio',
+    'CC_TO_INC':         'Credit Card Balance to Income',
+    'LIQ_TO_INC':        'Liquid Assets to Income',
+    'FOOD_RATIO':        'Total Food Spending to Income',
+    'IS_PRIME_EARNING':  'Prime Earning (35-54)',
+    'IS_PRE_RETIREMENT': 'Pre-Retirement (55+)',
+    'FOODHOME_X_PRE_RETIREMENT': 'Grocery Spending x Pre-Retirement',
+    'DTI_X_PRE_RETIREMENT':      'Debt Burden x Pre-Retirement',
+    'FOOD_DISCRETIONARY': 'Share of Food Budget Eaten Out',
+    'LIQ_SQUEEZE':       'Liquid Cushion Net of Debt Drag',
+}
+
+METHOD_LABELS = {
+    'lr_abs_coef_rank':   'Logistic Regression |coef|',
+    'rf_gini_rank':       'Random Forest (Gini)',
+    'perm_lr_rank':       'Permutation - LR',
+    'perm_rf_rank':       'Permutation - RF',
+    'shap_mean_abs_rank': 'SHAP (mean |value|)',
+}
+
+
+def pretty(code):
+    return FEATURE_LABELS.get(code, code)
+
+
+def pretty_method(rank_col):
+    return METHOD_LABELS.get(rank_col, rank_col.replace('_rank', ''))
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # STEP 1: LOAD DATA
@@ -89,12 +131,29 @@ print("=" * 70)
 print("STEP 2: FEATURE ENGINEERING")
 print("=" * 70)
 
-df['target'] = (df['EXPENSHILO'] == 1).astype(int)
+# V6 financial-confirmation target (mirrors scf_spending_pipeline.py).
+df['TOTAL_OUTFLOW'] = (
+    df['TPAY'] * 12
+    + df['FOODHOME']
+    + df['FOODAWAY']
+    + df['FOODDELV'].fillna(0)
+)
+df['SPEND_RATIO'] = np.where(
+    df['INCOME'] > 0, df['TOTAL_OUTFLOW'] / df['INCOME'], 0,
+)
+df['SPEND_RATIO'] = (
+    df['SPEND_RATIO'].replace([np.inf, -np.inf], np.nan).fillna(0)
+)
+df['calc_over'] = (df['SPEND_RATIO'] > df['SPEND_RATIO'].median()).astype(int)
+df['target'] = ((df['EXPENSHILO'] == 1) & (df['calc_over'] == 1)).astype(int)
 
 RAW_FEATURES = [
-    'INCOME', 'DEBT', 'LIQ', 'CONSPAY',
-    'FOODHOME', 'FOODAWAY', 'KIDS',
+    'INCOME', 'DEBT', 'CONSPAY',
+    'FOODHOME', 'KIDS',
 ]
+# FOODAWAY and LIQ are intentionally not in the model feature set; their
+# columns are still read so FOOD_DISCRETIONARY and LIQ_TO_INC can be
+# derived. See scf_spending_pipeline.py for rationale.
 available_raw = [c for c in RAW_FEATURES if c in df.columns]
 
 if 'DEBT2INC' in df.columns:
@@ -115,24 +174,21 @@ if {'FOODHOME', 'FOODAWAY', 'INCOME'}.issubset(df.columns):
 if {'CCBAL', 'INCOME'}.issubset(df.columns):
     df['CC_TO_INC'] = np.where(df['INCOME'] > 0, df['CCBAL'] / df['INCOME'], 0)
 
-# Interaction features - mirror scf_spending_pipeline.py derivations exactly
-# so this script ranks the same engineered set the model actually uses.
-# LIQ_TO_INC and FOOD_RATIO above are kept in the run for a head-to-head:
-# we want to see whether they out-rank the four interactions on this split.
+# Pre-retirement flag computed for use in interactions only (mirror pipeline).
+# Standalone age is intentionally not a model feature.
+# LIQ_TO_INC and FOOD_RATIO are kept in the run for a head-to-head:
+# we want to see whether they out-rank the interactions on this split.
 if 'AGE' in df.columns:
-    df['IS_OLD'] = (df['AGE'] >= 40).astype(int)
-if {'FOODHOME', 'IS_OLD'}.issubset(df.columns):
-    df['FOODHOME_X_OLD'] = df['FOODHOME'] * df['IS_OLD']
-if {'DTI', 'IS_OLD'}.issubset(df.columns):
-    df['DTI_X_OLD'] = df['DTI'] * df['IS_OLD']
+    df['IS_PRE_RETIREMENT'] = (df['AGE'] >= 55).astype(int)
+if {'FOODHOME', 'IS_PRE_RETIREMENT'}.issubset(df.columns):
+    df['FOODHOME_X_PRE_RETIREMENT'] = df['FOODHOME'] * df['IS_PRE_RETIREMENT']
 if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
     df['FOOD_DISCRETIONARY'] = df['FOODAWAY'] / (df['FOODHOME'] + df['FOODAWAY'] + 1)
 
 ENGINEERED = [
     'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC',
-    'IS_OLD',
     'LIQ_TO_INC', 'FOOD_RATIO',
-    'FOODHOME_X_OLD', 'DTI_X_OLD', 'FOOD_DISCRETIONARY',
+    'FOODHOME_X_PRE_RETIREMENT', 'FOOD_DISCRETIONARY',
 ]
 feature_cols = available_raw + [f for f in ENGINEERED if f in df.columns]
 
@@ -142,8 +198,7 @@ for col in feature_cols:
         df[col] = df[col].fillna(df[col].median())
 
 dollar_cols = [c for c in feature_cols if c in [
-    'INCOME', 'DEBT', 'LIQ',
-    'CONSPAY', 'FOODHOME', 'FOODAWAY',
+    'INCOME', 'DEBT', 'CONSPAY', 'FOODHOME',
 ]]
 for col in dollar_cols + [c for c in feature_cols if c in ENGINEERED]:
     p99 = df[col].quantile(0.99)
@@ -332,11 +387,11 @@ for i, (method, color) in enumerate(zip(method_names, palette)):
         len(feature_cols) + 1 - rank_plot_df[method],
         height=bar_width,
         color=color,
-        label=method.replace('_rank', ''),
+        label=pretty_method(method),
     )
 
 ax.set_yticks(y_pos)
-ax.set_yticklabels(rank_plot_df.index)
+ax.set_yticklabels([pretty(f) for f in rank_plot_df.index])
 ax.invert_yaxis()
 ax.set_xlabel(f"Inverted rank (higher bar = higher importance; max rank = {len(feature_cols)})")
 ax.set_title("Feature Importance Rank Across Methods")
@@ -353,7 +408,7 @@ fig, ax = plt.subplots(figsize=(12, 9))
 colors = [RED if v > 0 else TEAL for v in lr_sorted.values]
 ax.barh(range(len(lr_sorted)), lr_sorted.values, color=colors, edgecolor=NAVY)
 ax.set_yticks(range(len(lr_sorted)))
-ax.set_yticklabels(lr_sorted.index)
+ax.set_yticklabels([pretty(f) for f in lr_sorted.index])
 ax.axvline(0, color='black', linewidth=0.5)
 ax.set_xlabel("Standardized Coefficient (positive = increases overspending risk)")
 ax.set_title(f"Logistic Regression Coefficients (test AUC = {lr_auc:.3f})")
@@ -373,7 +428,7 @@ y_pos = np.arange(len(perm_df))
 ax.barh(y_pos - 0.2, perm_df['perm_lr'], height=0.4, color=NAVY, label='Logistic Regression')
 ax.barh(y_pos + 0.2, perm_df['perm_rf'], height=0.4, color=TEAL, label='Random Forest')
 ax.set_yticks(y_pos)
-ax.set_yticklabels(perm_df.index)
+ax.set_yticklabels([pretty(f) for f in perm_df.index])
 ax.axvline(0, color='black', linewidth=0.5)
 ax.set_xlabel("Mean AUC drop when feature is shuffled")
 ax.set_title(f"Permutation Importance (higher = feature matters more)")

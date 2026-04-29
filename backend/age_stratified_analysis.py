@@ -1,11 +1,17 @@
 """
 age_stratified_analysis.py
 ==========================
-Fits the same classifiers separately on middle_aged and old subsets,
-then compares against a global model evaluated on the same subsets.
+Fits the same classifiers separately on each age subset (young_adult,
+prime_earning, pre_retirement) and compares against a global model
+evaluated on the same subsets.
+
+Age bins (SCF/Federal Reserve canonical 3-bin grouping):
+  - young_adult     : AGE <  35
+  - prime_earning   : 35 <= AGE <= 54
+  - pre_retirement  : AGE >= 55
 
 Tests the hypothesis: does one global model leave signal on the table
-because middle-aged and older households have different distress drivers?
+because life-stage cohorts have different distress drivers?
 
 For each age group:
   1. Group-aware train/test split (household_id)
@@ -20,8 +26,6 @@ Outputs:
   - outputs/age_stratified_shap_by_group.csv     (top SHAP features per group)
   - outputs/17_age_stratified_performance.png    (specialist vs global AUC)
   - outputs/18_age_stratified_shap.png           (top SHAP features per group)
-
-Young is skipped (n=5 at 18 only).
 
 Usage:
   python age_stratified_analysis.py
@@ -50,7 +54,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
-AGE_GROUPS_TO_FIT = ['middle_aged', 'old']  # skip young (n=5)
+AGE_GROUPS_TO_FIT = ['young_adult', 'prime_earning', 'pre_retirement']
 
 plt.rcParams.update({
     'figure.figsize': (12, 8),
@@ -89,12 +93,28 @@ print("=" * 70)
 print("STEP 2: FEATURE ENGINEERING")
 print("=" * 70)
 
-df['target'] = (df['EXPENSHILO'] == 1).astype(int)
+# V6 financial-confirmation target (mirrors scf_spending_pipeline.py).
+df['TOTAL_OUTFLOW'] = (
+    df['TPAY'] * 12
+    + df['FOODHOME']
+    + df['FOODAWAY']
+    + df['FOODDELV'].fillna(0)
+)
+df['SPEND_RATIO'] = np.where(
+    df['INCOME'] > 0, df['TOTAL_OUTFLOW'] / df['INCOME'], 0,
+)
+df['SPEND_RATIO'] = (
+    df['SPEND_RATIO'].replace([np.inf, -np.inf], np.nan).fillna(0)
+)
+df['calc_over'] = (df['SPEND_RATIO'] > df['SPEND_RATIO'].median()).astype(int)
+df['target'] = ((df['EXPENSHILO'] == 1) & (df['calc_over'] == 1)).astype(int)
 
 RAW_FEATURES = [
-    'INCOME', 'DEBT', 'LIQ', 'CONSPAY',
-    'FOODHOME', 'FOODAWAY', 'KIDS',
+    'INCOME', 'DEBT', 'CONSPAY',
+    'FOODHOME', 'KIDS',
 ]
+# FOODAWAY and LIQ are not standalone model features; columns still read
+# for FOOD_DISCRETIONARY and LIQ_TO_INC. See scf_spending_pipeline.py.
 available_raw = [c for c in RAW_FEATURES if c in df.columns]
 
 if 'DEBT2INC' in df.columns:
@@ -109,23 +129,25 @@ if {'CONSPAY', 'INCOME'}.issubset(df.columns):
 if {'CCBAL', 'INCOME'}.issubset(df.columns):
     df['CC_TO_INC'] = np.where(df['INCOME'] > 0, df['CCBAL'] / df['INCOME'], 0)
 
-# IS_OLD and interaction features (mirror scf_spending_pipeline.py).
-# Note: within the "old" age-group specialist, IS_OLD will be constant
-# since all members have AGE >= 50 (and therefore IS_OLD = 1). The model
-# will give it zero weight inside that group; this is expected.
+if {'LIQ', 'INCOME'}.issubset(df.columns):
+    df['LIQ_TO_INC'] = np.where(df['INCOME'] > 0, df['LIQ'] / df['INCOME'], 0)
+
+# Pre-retirement flag computed for interactions only (mirror pipeline).
+# Standalone age is intentionally not a model feature; signal lives in
+# the interactions. Note: within the pre_retirement specialist subset,
+# the IS_PRE_RETIREMENT-based interactions degenerate to FOODHOME / DTI
+# (since the flag is always 1 there). The model gives them whatever
+# weight it would give the underlying feature; this is expected.
 if 'AGE' in df.columns:
-    df['IS_OLD'] = (df['AGE'] >= 40).astype(int)
-if {'FOODHOME', 'IS_OLD'}.issubset(df.columns):
-    df['FOODHOME_X_OLD'] = df['FOODHOME'] * df['IS_OLD']
-if {'DTI', 'IS_OLD'}.issubset(df.columns):
-    df['DTI_X_OLD'] = df['DTI'] * df['IS_OLD']
+    df['IS_PRE_RETIREMENT'] = (df['AGE'] >= 55).astype(int)
+if {'FOODHOME', 'IS_PRE_RETIREMENT'}.issubset(df.columns):
+    df['FOODHOME_X_PRE_RETIREMENT'] = df['FOODHOME'] * df['IS_PRE_RETIREMENT']
 if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
     df['FOOD_DISCRETIONARY'] = df['FOODAWAY'] / (df['FOODHOME'] + df['FOODAWAY'] + 1)
 
 ENGINEERED = [
-    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC',
-    'IS_OLD',
-    'FOODHOME_X_OLD', 'DTI_X_OLD', 'FOOD_DISCRETIONARY',
+    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC', 'LIQ_TO_INC',
+    'FOODHOME_X_PRE_RETIREMENT', 'FOOD_DISCRETIONARY',
 ]
 feature_cols = available_raw + [f for f in ENGINEERED if f in df.columns]
 
@@ -135,7 +157,7 @@ for col in feature_cols:
         df[col] = df[col].fillna(df[col].median())
 
 dollar_cols = [c for c in feature_cols if c in [
-    'INCOME', 'DEBT', 'LIQ', 'CONSPAY', 'FOODHOME', 'FOODAWAY',
+    'INCOME', 'DEBT', 'CONSPAY', 'FOODHOME',
 ]]
 for col in dollar_cols + [c for c in feature_cols if c in ENGINEERED]:
     p99 = df[col].quantile(0.99)
@@ -143,16 +165,16 @@ for col in dollar_cols + [c for c in feature_cols if c in ENGINEERED]:
 
 df['age_group'] = pd.cut(
     df['AGE'],
-    bins=[0, 18, 49, 100],
-    labels=['young', 'middle_aged', 'old'],
+    bins=[0, 34, 54, 100],
+    labels=['young_adult', 'prime_earning', 'pre_retirement'],
     include_lowest=True,
 )
 
 print(f"Feature count: {len(feature_cols)}")
 print(f"Age group sizes:")
-for lbl in ['young', 'middle_aged', 'old']:
+for lbl in ['young_adult', 'prime_earning', 'pre_retirement']:
     n = (df['age_group'] == lbl).sum()
-    print(f"  {lbl:12s} {n}")
+    print(f"  {lbl:15s} {n}")
 print()
 
 
@@ -373,16 +395,19 @@ shap_plot_df = shap_df.loc[top_features]
 
 fig, ax = plt.subplots(figsize=(12, 8))
 x = np.arange(len(top_features))
-bar_w = 0.4
-ax.barh(x - bar_w/2, shap_plot_df['middle_aged'], bar_w,
-        color=TEAL, label='middle_aged')
-ax.barh(x + bar_w/2, shap_plot_df['old'], bar_w,
-        color=NAVY, label='old')
+groups_for_shap = [g for g in AGE_GROUPS_TO_FIT if g in shap_plot_df.columns]
+n_groups = len(groups_for_shap)
+bar_w = 0.8 / max(n_groups, 1)
+group_colors = {'young_adult': GOLD, 'prime_earning': TEAL, 'pre_retirement': NAVY}
+for i, g in enumerate(groups_for_shap):
+    offset = (i - (n_groups - 1) / 2) * bar_w
+    ax.barh(x + offset, shap_plot_df[g], bar_w,
+            color=group_colors.get(g, NAVY), label=g)
 ax.set_yticks(x)
 ax.set_yticklabels(top_features)
 ax.invert_yaxis()
 ax.set_xlabel("Mean |SHAP value| (higher = more important)")
-ax.set_title("Top 10 Features by SHAP, Middle-Aged vs Old")
+ax.set_title("Top 10 Features by SHAP, by Age Group")
 ax.legend(loc='lower right')
 ax.grid(axis='x', alpha=0.3)
 shap_plot_path = OUTPUT_DIR / "18_age_stratified_shap.png"

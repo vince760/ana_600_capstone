@@ -70,8 +70,10 @@ def prepare_features(age_encoding):
     else:
         raise ValueError(f"Unknown age_encoding: {age_encoding}")
 
-    # Raw features (8) - matches scf_spending_pipeline.py post-prune
-    raw = ['INCOME', 'DEBT', 'LIQ', 'CONSPAY', 'FOODHOME', 'FOODAWAY', 'KIDS']
+    # Raw features - matches scf_spending_pipeline.py post-prune.
+    # FOODAWAY is excluded from the model (collinear with FOOD_DISCRETIONARY)
+    # but is still read from the dataframe to compute FOOD_DISCRETIONARY below.
+    raw = ['INCOME', 'DEBT', 'LIQ', 'CONSPAY', 'FOODHOME', 'KIDS']
 
     # Engineered features (mirror pipeline)
     if 'DEBT2INC' in df.columns:
@@ -97,7 +99,7 @@ def prepare_features(age_encoding):
 
     # Cap dollar columns and engineered columns at 99th percentile
     dollar_cols = [c for c in feature_cols if c in
-                   ['INCOME', 'DEBT', 'LIQ', 'CONSPAY', 'FOODHOME', 'FOODAWAY']]
+                   ['INCOME', 'DEBT', 'LIQ', 'CONSPAY', 'FOODHOME']]
     ratio_cols = [c for c in feature_cols if c in ['DTI', 'PAYMENT_TO_INC', 'CC_TO_INC']]
     interaction_cols = [c for c in feature_cols if c in
                         ['FOODHOME_X_AGE', 'DTI_X_AGE', 'FOOD_DISCRETIONARY']]

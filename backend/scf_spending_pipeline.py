@@ -105,16 +105,56 @@ print("=" * 70)
 print("STEP 2: FEATURE ENGINEERING & TARGET CREATION")
 print("=" * 70)
 
-# --- Create binary target ---
-# EXPENSHILO: 1 = spending > income, 2 = spending = income, 3 = spending < income
-# Binary: 1 = overspending (EXPENSHILO == 1), 0 = not overspending
-df['target'] = (df['EXPENSHILO'] == 1).astype(int)
+# --- Create binary target (V6 financial-confirmation approach) ---
+# EXPENSHILO is self-reported and noisy: ~27% of households who report
+# overspending show no financial distress (median income $110K, net worth
+# $813K). These "perception-only overspenders" cap any model trained on
+# raw EXPENSHILO at ~58% AUC because they are statistically indistinguish-
+# able from healthy non-overspenders.
+#
+# V6 fix: confirm self-reported overspending against numerical spending data.
+#   1) TOTAL_OUTFLOW = annualized debt payments + food spending
+#   2) SPEND_RATIO = TOTAL_OUTFLOW / INCOME
+#   3) calc_over = SPEND_RATIO above the dataset median
+#   4) target = (EXPENSHILO == 1) AND (calc_over == 1)
+# Only households whose self-report AND numerical spending agree count as
+# positive. The "perception-only" cases drop into the negative class.
+df['TOTAL_OUTFLOW'] = (
+    df['TPAY'] * 12
+    + df['FOODHOME']
+    + df['FOODAWAY']
+    + df['FOODDELV'].fillna(0)
+)
+df['SPEND_RATIO'] = np.where(
+    df['INCOME'] > 0,
+    df['TOTAL_OUTFLOW'] / df['INCOME'],
+    0,
+)
+df['SPEND_RATIO'] = (
+    df['SPEND_RATIO'].replace([np.inf, -np.inf], np.nan).fillna(0)
+)
+median_spend_ratio = df['SPEND_RATIO'].median()
+df['calc_over'] = (df['SPEND_RATIO'] > median_spend_ratio).astype(int)
 
-print("=== Target Distribution ===")
-overspend_count = df['target'].sum()
-not_overspend = len(df) - overspend_count
-print(f"  Overspending (1): {overspend_count} ({overspend_count/len(df)*100:.1f}%)")
-print(f"  Not overspending (0): {not_overspend} ({not_overspend/len(df)*100:.1f}%)")
+self_reported = (df['EXPENSHILO'] == 1).astype(int)
+df['target'] = (self_reported & df['calc_over']).astype(int)
+
+print("=== Target Distribution (V6 financial-confirmation) ===")
+print(f"  SPEND_RATIO median used as cutoff: {median_spend_ratio:.4f}")
+n_self = int(self_reported.sum())
+n_calc = int(df['calc_over'].sum())
+n_both = int(df['target'].sum())
+n_neither = int(((self_reported == 0) & (df['calc_over'] == 0)).sum())
+n_self_only = int(((self_reported == 1) & (df['calc_over'] == 0)).sum())
+n_calc_only = int(((self_reported == 0) & (df['calc_over'] == 1)).sum())
+print(f"  Self-reported overspending (EXPENSHILO==1): {n_self}")
+print(f"  Numerical overspending (above median ratio): {n_calc}")
+print(f"  Confirmed overspending (positive class):     {n_both} "
+      f"({n_both/len(df)*100:.1f}%)")
+print(f"  Negative class breakdown:")
+print(f"    Neither (healthy):           {n_neither}")
+print(f"    Self-reported only (noise):  {n_self_only}")
+print(f"    Numerical only (unaware):    {n_calc_only}")
 print()
 
 # --- Original EXPENSHILO distribution ---
@@ -129,12 +169,22 @@ print()
 RAW_FEATURES = {
     'INCOME': 'Total Household Income',
     'DEBT': 'Total Debt',
-    'LIQ': 'Liquid Assets',
     'CONSPAY': 'Monthly Consumer Debt Payments',
     'FOODHOME': 'Food Spending (Home)',
-    'FOODAWAY': 'Food Spending (Away)',
     'KIDS': 'Number of Children in Household',
 }
+# Notes on intentionally-omitted raw variables:
+#   FOODAWAY: redundant with FOOD_DISCRETIONARY (which is derived from it)
+#       and correlated with INCOME. Column still read for FOOD_DISCRETIONARY.
+#   LIQ: ranked dead last (#14) on LR permutation importance because the
+#       raw dollar amount is not income-normalized; LR can't usefully tell
+#       $50k of liquid assets apart for a $30k earner vs a $300k earner.
+#       Replaced with LIQ_TO_INC below. Column still read for that ratio.
+# Note on DEBT: it produces a counterintuitive negative LR coefficient when
+# paired with DTI (multicollinearity artifact - DEBT held-constant-for-
+# income picks up asset-backed wealth like mortgages). We tested dropping
+# it; CV AUC fell ~0.006, so the feature is carrying signal beyond what's
+# in DTI alone. Kept in despite the messy coefficient.
 
 # Check which features exist in the dataset
 available_raw = {k: v for k, v in RAW_FEATURES.items() if k in df.columns}
@@ -175,6 +225,19 @@ if 'CCBAL' in df.columns and 'INCOME' in df.columns:
     )
     print("  CC_TO_INC: derived from CCBAL / INCOME")
 
+# Liquid Assets to Income Ratio. Replaces raw LIQ as a model feature: LR
+# cannot make use of the raw dollar amount because it doesn't normalize
+# for household scale, so $50k means very different things across the
+# income distribution. The income-normalized version has a substantially
+# stronger LR coefficient.
+if 'LIQ' in df.columns and 'INCOME' in df.columns:
+    df['LIQ_TO_INC'] = np.where(
+        df['INCOME'] > 0,
+        df['LIQ'] / df['INCOME'],
+        0
+    )
+    print("  LIQ_TO_INC: derived from LIQ / INCOME")
+
 # ---------------------------------------------------------------------------
 # Interaction features
 # ---------------------------------------------------------------------------
@@ -189,29 +252,28 @@ if 'CCBAL' in df.columns and 'INCOME' in df.columns:
 #   - feature importance: FOODHOME is the #1 driver across all methods
 # ---------------------------------------------------------------------------
 
-# IS_OLD: binary AGE encoding (>= 40). Replaces numeric AGE as the model
-# feature - tested in age_binning_test.py and shown to perform equivalently
-# on CV AUC. We use the binary form because it produces more interpretable
-# SHAP values ("being 40+" is a cleaner narrative than "0.04 SHAP per year").
-# Raw df['AGE'] stays in the frame so age_group binning for plots still works.
+# Pre-retirement (55+) flag: computed in the dataframe so the interaction
+# features below can reference it, but NOT a standalone model feature.
+# The standalone age indicator was the weakest feature in the prior run
+# (ranked #14 of 16). Age signal lives in the interactions instead, where
+# it answers "does age moderate the risk weight of spending and debt?"
 if 'AGE' in df.columns:
-    df['IS_OLD'] = (df['AGE'] >= 40).astype(int)
-    n_old = int(df['IS_OLD'].sum())
-    print(f"  IS_OLD: derived from AGE >= 40 ({n_old} of {len(df)} households)")
+    df['IS_PRE_RETIREMENT'] = (df['AGE'] >= 55).astype(int)
+    n_retire = int(df['IS_PRE_RETIREMENT'].sum())
+    print(f"  IS_PRE_RETIREMENT: derived from AGE >= 55 ({n_retire} households, used in interactions only)")
 
-# FOODHOME_X_OLD: FOODHOME's #1-ranked signal may carry different risk
-# weight across life stages. With binary AGE encoding this becomes
-# "FOODHOME for households age 40+" (zero otherwise).
-if {'FOODHOME', 'IS_OLD'}.issubset(df.columns):
-    df['FOODHOME_X_OLD'] = df['FOODHOME'] * df['IS_OLD']
-    print("  FOODHOME_X_OLD: derived from FOODHOME * IS_OLD")
+# FOODHOME_X_PRE_RETIREMENT: FOODHOME's #1-ranked signal may carry different
+# risk weight in the 55+ cohort, where draw-down behavior and fixed-income
+# constraints can flip its sign. Single interaction (rather than one per
+# bin) keeps the feature count flat versus the old IS_OLD scheme.
+if {'FOODHOME', 'IS_PRE_RETIREMENT'}.issubset(df.columns):
+    df['FOODHOME_X_PRE_RETIREMENT'] = df['FOODHOME'] * df['IS_PRE_RETIREMENT']
+    print("  FOODHOME_X_PRE_RETIREMENT: derived from FOODHOME * IS_PRE_RETIREMENT")
 
-# DTI_X_OLD: identical DTI levels mean different things at different life
-# stages. With binary AGE encoding this captures "DTI burden specifically
-# for the 40+ cohort", isolating late-career/retirement debt stress.
-if {'DTI', 'IS_OLD'}.issubset(df.columns):
-    df['DTI_X_OLD'] = df['DTI'] * df['IS_OLD']
-    print("  DTI_X_OLD: derived from DTI * IS_OLD")
+# DTI_X_PRE_RETIREMENT was tested and dropped: it ranked last in mean
+# importance across methods (#12 of 12) and had a near-zero LR coefficient.
+# Standalone DTI already captures the debt-burden signal; adding a 55+
+# multiplier did not provide new predictive lift.
 
 # FOOD_DISCRETIONARY: share of total food spending on eating out. A
 # lifestyle signal independent of absolute spending levels; two households
@@ -223,17 +285,33 @@ if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
     df['FOOD_DISCRETIONARY'] = df['FOODAWAY'] / (df['FOODHOME'] + df['FOODAWAY'] + 1)
     print("  FOOD_DISCRETIONARY: derived from FOODAWAY / (FOODHOME + FOODAWAY + 1)")
 
+# LIQ_SQUEEZE was tested and dropped: ranked dead last (mean rank 11.2)
+# in cross-method importance. Most households have DTI well below 1, so
+# the multiplier (1 - DTI) was close to 1 for the majority, making the
+# feature mostly a slightly-shrunken copy of LIQ - high collinearity by
+# construction. The intended interaction signal only mattered for the
+# small high-DTI tail.
+
+# INCOME_SHORTFALL was tested and dropped: the LR coefficient came out
+# the wrong sign (households below normal income overspent slightly LESS,
+# not more), and SHAP ranked it dead last. Test AUC moved -0.0002 (noise).
+# The consumption-smoothing hypothesis was reasonable but not borne out
+# in this dataset, possibly because households reporting a bad year had
+# already cut spending in response.
+
 # Age group: labeled categorical for EDA/plots only (not a model feature).
-# The model uses IS_OLD (binary, AGE >= 40), not numeric AGE.
+# The model uses IS_PRIME_EARNING + IS_PRE_RETIREMENT dummies (under-35 ref).
+# Bins match the SCF/Federal Reserve canonical 3-bin grouping.
 if 'AGE' in df.columns:
     df['age_group'] = pd.cut(
         df['AGE'],
-        bins=[0, 18, 49, 100],
-        labels=['young', 'middle_aged', 'old'],
+        bins=[0, 34, 54, 100],
+        labels=['young_adult', 'prime_earning', 'pre_retirement'],
         include_lowest=True,
     )
-    group_counts = df['age_group'].value_counts().reindex(['young', 'middle_aged', 'old'])
-    print("  age_group: binned from AGE (0-18 young, 19-49 middle_aged, 50-100 old)")
+    order = ['young_adult', 'prime_earning', 'pre_retirement']
+    group_counts = df['age_group'].value_counts().reindex(order)
+    print("  age_group: binned from AGE (<35 young_adult, 35-54 prime_earning, 55+ pre_retirement)")
     for label, count in group_counts.items():
         pct = count / len(df) * 100
         print(f"    {label}: {count} ({pct:.1f}%)")
@@ -242,10 +320,11 @@ print()
 
 # --- Assemble final feature set ---
 ENGINEERED = [
-    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC',
-    'IS_OLD',
-    # Interaction features (see derivation section above for hypotheses)
-    'FOODHOME_X_OLD', 'DTI_X_OLD', 'FOOD_DISCRETIONARY',
+    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC', 'LIQ_TO_INC',
+    # Standalone age intentionally omitted - age signal lives entirely in
+    # FOODHOME_X_PRE_RETIREMENT. DTI_X_PRE_RETIREMENT was dropped after
+    # ranking dead last in cross-method importance.
+    'FOODHOME_X_PRE_RETIREMENT', 'FOOD_DISCRETIONARY',
 ]
 all_features = list(available_raw.keys()) + [f for f in ENGINEERED if f in df.columns]
 
@@ -271,7 +350,7 @@ for col in feature_cols:
         print(f"  Filled {na_count} NaN in {col} with median ({median_val:.2f})")
 
 # Cap extreme outliers at 99th percentile for dollar amounts
-dollar_cols = [c for c in feature_cols if c in ['INCOME', 'DEBT', 'LIQ', 'CONSPAY', 'FOODHOME', 'FOODAWAY']]
+dollar_cols = [c for c in feature_cols if c in ['INCOME', 'DEBT', 'CONSPAY', 'FOODHOME']]
 for col in dollar_cols:
     p99 = df[col].quantile(0.99)
     clipped = (df[col] > p99).sum()
@@ -280,7 +359,7 @@ for col in dollar_cols:
         print(f"  Capped {clipped} outliers in {col} at 99th percentile (${p99:,.0f})")
 
 # Cap ratio features at reasonable bounds
-ratio_cols = [c for c in feature_cols if c in ['DTI', 'PAYMENT_TO_INC', 'CC_TO_INC']]
+ratio_cols = [c for c in feature_cols if c in ['DTI', 'PAYMENT_TO_INC', 'CC_TO_INC', 'LIQ_TO_INC']]
 for col in ratio_cols:
     p99 = df[col].quantile(0.99)
     clipped = (df[col] > p99).sum()
@@ -288,12 +367,12 @@ for col in ratio_cols:
         df[col] = df[col].clip(upper=p99)
         print(f"  Capped {clipped} outliers in {col} at 99th percentile ({p99:.4f})")
 
-# Cap interaction features at 99th percentile. FOODHOME_X_OLD inherits
-# FOODHOME's heavy right tail (multiplying by 0/1 doesn't tame it), so
-# unbounded interactions can dominate Logistic Regression's scaled feature
-# space without this cap.
+# Cap interaction features at 99th percentile. FOODHOME_X_PRE_RETIREMENT
+# inherits FOODHOME's heavy right tail (multiplying by 0/1 doesn't tame it),
+# so unbounded interactions can dominate Logistic Regression's scaled
+# feature space without this cap.
 interaction_cols = [c for c in feature_cols if c in [
-    'FOODHOME_X_OLD', 'DTI_X_OLD', 'FOOD_DISCRETIONARY',
+    'FOODHOME_X_PRE_RETIREMENT', 'FOOD_DISCRETIONARY',
 ]]
 for col in interaction_cols:
     p99 = df[col].quantile(0.99)
@@ -708,13 +787,11 @@ if len(overspend_idx) > 0:
 
         # Print the household's key financials
         household = X_test.iloc[idx]
-        for feat in ['INCOME', 'DEBT', 'LIQ', 'DTI', 'IS_OLD', 'KIDS']:
+        for feat in ['INCOME', 'DEBT', 'CONSPAY', 'DTI', 'LIQ_TO_INC', 'KIDS']:
             if feat in household.index:
                 val = household[feat]
-                if feat in ['DTI', 'PAYMENT_TO_INC', 'CC_TO_INC']:
+                if feat in ['DTI', 'PAYMENT_TO_INC', 'CC_TO_INC', 'LIQ_TO_INC']:
                     print(f"    {feat}: {val:.4f}")
-                elif feat == 'IS_OLD':
-                    print(f"    {feat}: {'yes (40+)' if int(val) == 1 else 'no (<40)'}")
                 elif feat == 'KIDS':
                     print(f"    {feat}: {int(val)}")
                 else:
@@ -785,7 +862,7 @@ summary = {
     'households': len(df),
     'features': len(feature_cols),
     'feature_names': feature_cols,
-    'target': 'EXPENSHILO (binary: spending > income)',
+    'target': 'V6 financial-confirmation: (EXPENSHILO == 1) AND (SPEND_RATIO > median)',
     'target_positive_rate': float(df['target'].mean()),
     'train_size': len(X_train),
     'test_size': len(X_test),

@@ -8,7 +8,7 @@ standardizes them, then runs PCA. Outputs:
   - scree plot (variance explained per component)
   - cumulative variance curve (helps pick n_components)
   - 2D projection colored by target (overspending vs not)
-  - 2D projection colored by age_group (young / middle_aged / old)
+  - 2D projection colored by age_group (young_adult / prime_earning / pre_retirement)
   - component loadings CSV (which features drive each PC)
   - explained variance CSV
 
@@ -74,12 +74,28 @@ print("STEP 2: FEATURE ENGINEERING")
 print("=" * 70)
 
 # Binary target (for coloring only; not used in PCA fit)
-df['target'] = (df['EXPENSHILO'] == 1).astype(int)
+# V6 financial-confirmation target (mirrors scf_spending_pipeline.py).
+df['TOTAL_OUTFLOW'] = (
+    df['TPAY'] * 12
+    + df['FOODHOME']
+    + df['FOODAWAY']
+    + df['FOODDELV'].fillna(0)
+)
+df['SPEND_RATIO'] = np.where(
+    df['INCOME'] > 0, df['TOTAL_OUTFLOW'] / df['INCOME'], 0,
+)
+df['SPEND_RATIO'] = (
+    df['SPEND_RATIO'].replace([np.inf, -np.inf], np.nan).fillna(0)
+)
+df['calc_over'] = (df['SPEND_RATIO'] > df['SPEND_RATIO'].median()).astype(int)
+df['target'] = ((df['EXPENSHILO'] == 1) & (df['calc_over'] == 1)).astype(int)
 
 RAW_FEATURES = [
-    'INCOME', 'DEBT', 'LIQ', 'CONSPAY',
-    'FOODHOME', 'FOODAWAY', 'KIDS',
+    'INCOME', 'DEBT', 'CONSPAY',
+    'FOODHOME', 'KIDS',
 ]
+# FOODAWAY and LIQ are not standalone model features; columns still read
+# for FOOD_DISCRETIONARY and LIQ_TO_INC. See scf_spending_pipeline.py.
 available_raw = [c for c in RAW_FEATURES if c in df.columns]
 
 # Derived features (mirror scf_spending_pipeline.py)
@@ -96,29 +112,31 @@ if {'CONSPAY', 'INCOME'}.issubset(df.columns):
 if {'CCBAL', 'INCOME'}.issubset(df.columns):
     df['CC_TO_INC'] = np.where(df['INCOME'] > 0, df['CCBAL'] / df['INCOME'], 0)
 
-# IS_OLD and interaction features (mirror pipeline)
+if {'LIQ', 'INCOME'}.issubset(df.columns):
+    df['LIQ_TO_INC'] = np.where(df['INCOME'] > 0, df['LIQ'] / df['INCOME'], 0)
+
+# Pre-retirement flag computed for interactions only (mirror pipeline).
+# Standalone age is intentionally not a model feature.
 if 'AGE' in df.columns:
-    df['IS_OLD'] = (df['AGE'] >= 40).astype(int)
-if {'FOODHOME', 'IS_OLD'}.issubset(df.columns):
-    df['FOODHOME_X_OLD'] = df['FOODHOME'] * df['IS_OLD']
-if {'DTI', 'IS_OLD'}.issubset(df.columns):
-    df['DTI_X_OLD'] = df['DTI'] * df['IS_OLD']
+    df['IS_PRE_RETIREMENT'] = (df['AGE'] >= 55).astype(int)
+if {'FOODHOME', 'IS_PRE_RETIREMENT'}.issubset(df.columns):
+    df['FOODHOME_X_PRE_RETIREMENT'] = df['FOODHOME'] * df['IS_PRE_RETIREMENT']
 if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
     df['FOOD_DISCRETIONARY'] = df['FOODAWAY'] / (df['FOODHOME'] + df['FOODAWAY'] + 1)
 
 ENGINEERED = [
-    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC',
-    'IS_OLD',
-    'FOODHOME_X_OLD', 'DTI_X_OLD', 'FOOD_DISCRETIONARY',
+    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC', 'LIQ_TO_INC',
+    'FOODHOME_X_PRE_RETIREMENT', 'FOOD_DISCRETIONARY',
 ]
 feature_cols = available_raw + [f for f in ENGINEERED if f in df.columns]
 
-# Age group (labeled categorical, for plot coloring only)
+# Age group (labeled categorical, for plot coloring only).
+# SCF/Federal Reserve canonical 3-bin grouping.
 if 'AGE' in df.columns:
     df['age_group'] = pd.cut(
         df['AGE'],
-        bins=[0, 18, 49, 100],
-        labels=['young', 'middle_aged', 'old'],
+        bins=[0, 34, 54, 100],
+        labels=['young_adult', 'prime_earning', 'pre_retirement'],
         include_lowest=True,
     )
 
@@ -127,8 +145,7 @@ for col in feature_cols:
     df[col] = df[col].replace([np.inf, -np.inf], np.nan)
 
 dollar_cols = [c for c in feature_cols if c in [
-    'INCOME', 'DEBT', 'LIQ',
-    'CONSPAY', 'FOODHOME', 'FOODAWAY',
+    'INCOME', 'DEBT', 'CONSPAY', 'FOODHOME',
 ]]
 ratio_cols = [c for c in feature_cols if c in ENGINEERED]
 for col in dollar_cols + ratio_cols:
@@ -279,7 +296,7 @@ print(f"Saved: {target_path}")
 if 'age_group' in df.columns:
     fig, ax = plt.subplots(figsize=(12, 8))
     ag_sample = df['age_group'].values[sample_idx]
-    palette = {'young': GOLD, 'middle_aged': TEAL, 'old': NAVY}
+    palette = {'young_adult': GOLD, 'prime_earning': TEAL, 'pre_retirement': NAVY}
     for label, color in palette.items():
         mask = ag_sample == label
         if mask.sum() == 0:
