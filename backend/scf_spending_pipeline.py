@@ -49,6 +49,17 @@ from sklearn.metrics import (
 )
 import xgboost as xgb
 import shap
+from sklearn.frozen import FrozenEstimator
+
+from expenshilo_core import (
+    RAW_FEATURES,
+    add_engineered_columns,
+    add_household_id,
+    add_target_columns,
+    get_available_raw_features,
+    get_model_feature_columns,
+    preprocess_training_features,
+)
 
 # ─── Configuration ───────────────────────────────────────────────────
 DATA_PATH = Path("data/SCFP2022.csv")
@@ -81,17 +92,11 @@ print("=" * 70)
 df = pd.read_csv(DATA_PATH)
 print(f"Loaded {len(df)} records, {len(df.columns)} columns")
 
-# Use all 5 SCF implicates (imputation replicates).
-# Y1 encodes household ID + implicate number as the last digit.
-# Derive household_id by stripping the trailing implicate digit so we can
-# keep all 5 imputed records per household but prevent any household from
-# appearing in both train and test splits.
+df = add_household_id(df)
+n_households = df['household_id'].nunique()
 if 'Y1' in df.columns:
-    df['household_id'] = df['Y1'].astype(str).str[:-1].astype(int)
-    n_households = df['household_id'].nunique()
     print(f"Using all 5 implicates: {len(df)} records across {n_households} households")
 else:
-    df['household_id'] = np.arange(len(df))
     print("No Y1 column found; treating each row as its own household")
 
 print(f"\nDataset shape: {df.shape}")
@@ -119,34 +124,16 @@ print("=" * 70)
 #   4) target = (EXPENSHILO == 1) AND (calc_over == 1)
 # Only households whose self-report AND numerical spending agree count as
 # positive. The "perception-only" cases drop into the negative class.
-df['TOTAL_OUTFLOW'] = (
-    df['TPAY'] * 12
-    + df['FOODHOME']
-    + df['FOODAWAY']
-    + df['FOODDELV'].fillna(0)
-)
-df['SPEND_RATIO'] = np.where(
-    df['INCOME'] > 0,
-    df['TOTAL_OUTFLOW'] / df['INCOME'],
-    0,
-)
-df['SPEND_RATIO'] = (
-    df['SPEND_RATIO'].replace([np.inf, -np.inf], np.nan).fillna(0)
-)
-median_spend_ratio = df['SPEND_RATIO'].median()
-df['calc_over'] = (df['SPEND_RATIO'] > median_spend_ratio).astype(int)
-
-self_reported = (df['EXPENSHILO'] == 1).astype(int)
-df['target'] = (self_reported & df['calc_over']).astype(int)
+df, target_stats = add_target_columns(df)
 
 print("=== Target Distribution (V6 financial-confirmation) ===")
-print(f"  SPEND_RATIO median used as cutoff: {median_spend_ratio:.4f}")
-n_self = int(self_reported.sum())
-n_calc = int(df['calc_over'].sum())
-n_both = int(df['target'].sum())
-n_neither = int(((self_reported == 0) & (df['calc_over'] == 0)).sum())
-n_self_only = int(((self_reported == 1) & (df['calc_over'] == 0)).sum())
-n_calc_only = int(((self_reported == 0) & (df['calc_over'] == 1)).sum())
+print(f"  SPEND_RATIO median used as cutoff: {target_stats['median_spend_ratio_cutoff']:.4f}")
+n_self = target_stats['self_reported_count']
+n_calc = target_stats['numerical_overspending_count']
+n_both = target_stats['positive_count']
+n_neither = target_stats['neither_count']
+n_self_only = target_stats['self_only_count']
+n_calc_only = target_stats['calc_only_count']
 print(f"  Self-reported overspending (EXPENSHILO==1): {n_self}")
 print(f"  Numerical overspending (above median ratio): {n_calc}")
 print(f"  Confirmed overspending (positive class):     {n_both} "
@@ -166,13 +153,6 @@ for val, label in [(1, "Spending > Income"), (2, "Spending = Income"), (3, "Spen
 print()
 
 # --- Select raw features ---
-RAW_FEATURES = {
-    'INCOME': 'Total Household Income',
-    'DEBT': 'Total Debt',
-    'CONSPAY': 'Monthly Consumer Debt Payments',
-    'FOODHOME': 'Food Spending (Home)',
-    'KIDS': 'Number of Children in Household',
-}
 # Notes on intentionally-omitted raw variables:
 #   FOODAWAY: redundant with FOOD_DISCRETIONARY (which is derived from it)
 #       and correlated with INCOME. Column still read for FOOD_DISCRETIONARY.
@@ -187,7 +167,7 @@ RAW_FEATURES = {
 # in DTI alone. Kept in despite the messy coefficient.
 
 # Check which features exist in the dataset
-available_raw = {k: v for k, v in RAW_FEATURES.items() if k in df.columns}
+available_raw = get_available_raw_features(df)
 missing_raw = {k: v for k, v in RAW_FEATURES.items() if k not in df.columns}
 
 if missing_raw:
@@ -198,45 +178,14 @@ print()
 
 # --- Engineer derived features ---
 print("=== Engineering Derived Features ===")
-
-# DTI: use pre-computed if available, otherwise derive
+df = add_engineered_columns(df)
 if 'DEBT2INC' in df.columns:
-    df['DTI'] = df['DEBT2INC']
     print("  DTI: using pre-computed DEBT2INC")
-elif 'DEBT' in df.columns and 'INCOME' in df.columns:
-    df['DTI'] = np.where(df['INCOME'] > 0, df['DEBT'] / df['INCOME'], 0)
+else:
     print("  DTI: derived from DEBT / INCOME")
-
-# Payment-to-Income Ratio
-if 'CONSPAY' in df.columns and 'INCOME' in df.columns:
-    df['PAYMENT_TO_INC'] = np.where(
-        df['INCOME'] > 0,
-        (df['CONSPAY'] * 12) / df['INCOME'],
-        0
-    )
-    print("  PAYMENT_TO_INC: derived from (CONSPAY * 12) / INCOME")
-
-# CC Balance to Income Ratio
-if 'CCBAL' in df.columns and 'INCOME' in df.columns:
-    df['CC_TO_INC'] = np.where(
-        df['INCOME'] > 0,
-        df['CCBAL'] / df['INCOME'],
-        0
-    )
-    print("  CC_TO_INC: derived from CCBAL / INCOME")
-
-# Liquid Assets to Income Ratio. Replaces raw LIQ as a model feature: LR
-# cannot make use of the raw dollar amount because it doesn't normalize
-# for household scale, so $50k means very different things across the
-# income distribution. The income-normalized version has a substantially
-# stronger LR coefficient.
-if 'LIQ' in df.columns and 'INCOME' in df.columns:
-    df['LIQ_TO_INC'] = np.where(
-        df['INCOME'] > 0,
-        df['LIQ'] / df['INCOME'],
-        0
-    )
-    print("  LIQ_TO_INC: derived from LIQ / INCOME")
+print("  PAYMENT_TO_INC: derived from (CONSPAY * 12) / INCOME")
+print("  CC_TO_INC: derived from CCBAL / INCOME")
+print("  LIQ_TO_INC: derived from LIQ / INCOME")
 
 # ---------------------------------------------------------------------------
 # Interaction features
@@ -257,8 +206,7 @@ if 'LIQ' in df.columns and 'INCOME' in df.columns:
 # The standalone age indicator was the weakest feature in the prior run
 # (ranked #14 of 16). Age signal lives in the interactions instead, where
 # it answers "does age moderate the risk weight of spending and debt?"
-if 'AGE' in df.columns:
-    df['IS_PRE_RETIREMENT'] = (df['AGE'] >= 55).astype(int)
+if 'IS_PRE_RETIREMENT' in df.columns:
     n_retire = int(df['IS_PRE_RETIREMENT'].sum())
     print(f"  IS_PRE_RETIREMENT: derived from AGE >= 55 ({n_retire} households, used in interactions only)")
 
@@ -266,8 +214,7 @@ if 'AGE' in df.columns:
 # risk weight in the 55+ cohort, where draw-down behavior and fixed-income
 # constraints can flip its sign. Single interaction (rather than one per
 # bin) keeps the feature count flat versus the old IS_OLD scheme.
-if {'FOODHOME', 'IS_PRE_RETIREMENT'}.issubset(df.columns):
-    df['FOODHOME_X_PRE_RETIREMENT'] = df['FOODHOME'] * df['IS_PRE_RETIREMENT']
+if 'FOODHOME_X_PRE_RETIREMENT' in df.columns:
     print("  FOODHOME_X_PRE_RETIREMENT: derived from FOODHOME * IS_PRE_RETIREMENT")
 
 # DTI_X_PRE_RETIREMENT was tested and dropped: it ranked last in mean
@@ -281,8 +228,7 @@ if {'FOODHOME', 'IS_PRE_RETIREMENT'}.issubset(df.columns):
 # therefore on their flexibility to cut spending when stressed. The +1 in
 # the denominator prevents divide-by-zero for households with no food
 # spending recorded.
-if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
-    df['FOOD_DISCRETIONARY'] = df['FOODAWAY'] / (df['FOODHOME'] + df['FOODAWAY'] + 1)
+if 'FOOD_DISCRETIONARY' in df.columns:
     print("  FOOD_DISCRETIONARY: derived from FOODAWAY / (FOODHOME + FOODAWAY + 1)")
 
 # LIQ_SQUEEZE was tested and dropped: ranked dead last (mean rank 11.2)
@@ -302,13 +248,7 @@ if {'FOODHOME', 'FOODAWAY'}.issubset(df.columns):
 # Age group: labeled categorical for EDA/plots only (not a model feature).
 # The model uses IS_PRIME_EARNING + IS_PRE_RETIREMENT dummies (under-35 ref).
 # Bins match the SCF/Federal Reserve canonical 3-bin grouping.
-if 'AGE' in df.columns:
-    df['age_group'] = pd.cut(
-        df['AGE'],
-        bins=[0, 34, 54, 100],
-        labels=['young_adult', 'prime_earning', 'pre_retirement'],
-        include_lowest=True,
-    )
+if 'age_group' in df.columns:
     order = ['young_adult', 'prime_earning', 'pre_retirement']
     group_counts = df['age_group'].value_counts().reindex(order)
     print("  age_group: binned from AGE (<35 young_adult, 35-54 prime_earning, 55+ pre_retirement)")
@@ -319,17 +259,7 @@ if 'AGE' in df.columns:
 print()
 
 # --- Assemble final feature set ---
-ENGINEERED = [
-    'DTI', 'PAYMENT_TO_INC', 'CC_TO_INC', 'LIQ_TO_INC',
-    # Standalone age intentionally omitted - age signal lives entirely in
-    # FOODHOME_X_PRE_RETIREMENT. DTI_X_PRE_RETIREMENT was dropped after
-    # ranking dead last in cross-method importance.
-    'FOODHOME_X_PRE_RETIREMENT', 'FOOD_DISCRETIONARY',
-]
-all_features = list(available_raw.keys()) + [f for f in ENGINEERED if f in df.columns]
-
-# Remove any features not in the dataframe
-feature_cols = [f for f in all_features if f in df.columns]
+feature_cols = get_model_feature_columns(df)
 
 print(f"=== Final Feature Set: {len(feature_cols)} features ===")
 for i, f in enumerate(feature_cols, 1):
@@ -337,48 +267,23 @@ for i, f in enumerate(feature_cols, 1):
     print(f"  {i:2d}. {f:20s} {desc}")
 print()
 
-# --- Handle infinities and extreme outliers ---
-for col in feature_cols:
-    df[col] = df[col].replace([np.inf, -np.inf], np.nan)
+processed_features, preprocessing, preprocessing_summary = preprocess_training_features(
+    df,
+    feature_cols,
+)
+df[feature_cols] = processed_features
 
-# Fill any NaN with median
-for col in feature_cols:
-    if df[col].isna().any():
-        median_val = df[col].median()
-        na_count = df[col].isna().sum()
-        df[col] = df[col].fillna(median_val)
-        print(f"  Filled {na_count} NaN in {col} with median ({median_val:.2f})")
+for col, na_count in preprocessing_summary['fill_counts'].items():
+    median_val = preprocessing.fill_values[col]
+    print(f"  Filled {na_count} NaN in {col} with median ({median_val:.2f})")
 
-# Cap extreme outliers at 99th percentile for dollar amounts
-dollar_cols = [c for c in feature_cols if c in ['INCOME', 'DEBT', 'CONSPAY', 'FOODHOME']]
-for col in dollar_cols:
-    p99 = df[col].quantile(0.99)
-    clipped = (df[col] > p99).sum()
-    if clipped > 0:
-        df[col] = df[col].clip(upper=p99)
+for col, clipped in preprocessing_summary['clip_counts'].items():
+    if clipped <= 0:
+        continue
+    p99 = preprocessing.upper_clip_bounds[col]
+    if col in ['INCOME', 'DEBT', 'CONSPAY', 'FOODHOME']:
         print(f"  Capped {clipped} outliers in {col} at 99th percentile (${p99:,.0f})")
-
-# Cap ratio features at reasonable bounds
-ratio_cols = [c for c in feature_cols if c in ['DTI', 'PAYMENT_TO_INC', 'CC_TO_INC', 'LIQ_TO_INC']]
-for col in ratio_cols:
-    p99 = df[col].quantile(0.99)
-    clipped = (df[col] > p99).sum()
-    if clipped > 0:
-        df[col] = df[col].clip(upper=p99)
-        print(f"  Capped {clipped} outliers in {col} at 99th percentile ({p99:.4f})")
-
-# Cap interaction features at 99th percentile. FOODHOME_X_PRE_RETIREMENT
-# inherits FOODHOME's heavy right tail (multiplying by 0/1 doesn't tame it),
-# so unbounded interactions can dominate Logistic Regression's scaled
-# feature space without this cap.
-interaction_cols = [c for c in feature_cols if c in [
-    'FOODHOME_X_PRE_RETIREMENT', 'FOOD_DISCRETIONARY',
-]]
-for col in interaction_cols:
-    p99 = df[col].quantile(0.99)
-    clipped = (df[col] > p99).sum()
-    if clipped > 0:
-        df[col] = df[col].clip(upper=p99)
+    else:
         print(f"  Capped {clipped} outliers in {col} at 99th percentile ({p99:.4f})")
 
 print()
@@ -433,12 +338,13 @@ models = {
     ),
     'Random Forest': RandomForestClassifier(
         n_estimators=200, max_depth=None, min_samples_leaf=5,
-        random_state=RANDOM_STATE, n_jobs=-1, class_weight='balanced'
+        random_state=RANDOM_STATE, n_jobs=1, class_weight='balanced'
     ),
     'XGBoost': xgb.XGBClassifier(
         n_estimators=200, max_depth=6, learning_rate=0.1,
         random_state=RANDOM_STATE, eval_metric='logloss',
         scale_pos_weight=(len(y_train) - y_train.sum()) / max(y_train.sum(), 1),
+        n_jobs=1,
         use_label_encoder=False
     ),
     'Neural Network (MLP)': MLPClassifier(
@@ -465,7 +371,7 @@ for name, model in models.items():
     cv_scores = cross_val_score(
         cv_estimator, X_train, y_train,
         cv=cv_splitter, groups=groups_train,
-        scoring='roc_auc', n_jobs=-1
+        scoring='roc_auc', n_jobs=1
     )
     cv_auc_mean = cv_scores.mean()
     cv_auc_std = cv_scores.std()
@@ -637,7 +543,10 @@ model_train_idx, cal_idx = next(cal_splitter.split(X_train, y_train, groups=grou
 
 base_for_cal.fit(X_train.iloc[model_train_idx], y_train.iloc[model_train_idx])
 
-calibrated = CalibratedClassifierCV(base_for_cal, method='isotonic', cv='prefit')
+calibrated = CalibratedClassifierCV(
+    FrozenEstimator(base_for_cal),
+    method='isotonic',
+)
 calibrated.fit(X_train.iloc[cal_idx], y_train.iloc[cal_idx])
 
 cal_prob = calibrated.predict_proba(X_test)[:, 1]

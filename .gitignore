@@ -49,3 +49,5 @@ venv/
 # backend
 backend/eda_output/
 backend/outputs/*
+backend/artifacts/*
+!backend/artifacts/.gitkeep
