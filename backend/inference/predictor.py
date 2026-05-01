@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 import shap
 
-from backend.feature_plain_language import FEATURE_DICTIONARY
+from backend.EDA.feature_plain_language import FEATURE_DICTIONARY
 
 from .artifact import ExpenshiloArtifact
 from .features import build_feature_snapshot

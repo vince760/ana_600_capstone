@@ -1,9 +1,4 @@
-"""Shared expenshilo feature-engineering and training-prep logic.
-
-This module is the single source of truth for the reusable parts of the
-SCF expenshilo pipeline. Both the research script and the serving layer
-should import these helpers rather than re-implementing the formulas.
-"""
+"""Shared expenshilo feature-engineering and training-prep logic."""
 
 from __future__ import annotations
 
