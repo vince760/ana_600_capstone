@@ -39,9 +39,6 @@ from pathlib import Path
 import csv
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# FEATURE DICTIONARY
-# ═══════════════════════════════════════════════════════════════════════
 FEATURE_DICTIONARY = {
     # ----- Raw dollar-amount features -----
     'INCOME': {
@@ -118,6 +115,15 @@ FEATURE_DICTIONARY = {
     },
 
     # ----- Demographic / categorical features -----
+    'KIDS': {
+        'label': 'Number of Children',
+        'description': 'Number of children under age 18 in the household.',
+        'high_means': 'the household has more dependent children to support.',
+        'low_means': 'the household has fewer or no dependent children.',
+        'units': 'count',
+        'risk_direction': 'mixed',
+        'category': 'demographic',
+    },
     'AGE': {
         'label': 'Age (Reference Person)',
         'description': 'Age of the primary respondent (reference person) for the household.',
@@ -163,6 +169,15 @@ FEATURE_DICTIONARY = {
         'low_means': 'credit card balance is small or zero relative to income.',
         'units': 'ratio',
         'risk_direction': 'higher',
+        'category': 'ratio',
+    },
+    'LIQ_TO_INC': {
+        'label': 'Liquid Assets to Income',
+        'description': 'Liquid assets divided by annual income; shows how large the household\'s accessible cash buffer is relative to what it earns.',
+        'high_means': 'the household has a strong liquid cash buffer relative to income.',
+        'low_means': 'the household has little accessible cash relative to income.',
+        'units': 'ratio',
+        'risk_direction': 'lower',
         'category': 'ratio',
     },
 
@@ -253,12 +268,8 @@ FEATURE_DICTIONARY = {
 }
 
 
-# ═══════════════════════════════════════════════════════════════════════
+
 # CATEGORICAL LEVEL MAPPINGS
-# ═══════════════════════════════════════════════════════════════════════
-# These follow SCF Summary Extract convention. VERIFY against the
-# Federal Reserve Bulletin macro documentation before publication.
-# ═══════════════════════════════════════════════════════════════════════
 LEVEL_MAPPINGS = {
     'FAMSTRUCT': {
         1: 'Unmarried with children',
@@ -275,16 +286,8 @@ LEVEL_MAPPINGS = {
 }
 
 
-# ═══════════════════════════════════════════════════════════════════════
 # HELPERS
-# ═══════════════════════════════════════════════════════════════════════
 def describe_value(feature, value):
-    """Return a short natural-language description of a feature's value.
-
-    For dollar features, formats as currency. For ratios, formats as a
-    percentage or decimal. For categorical features, looks up the level
-    mapping.
-    """
     entry = FEATURE_DICTIONARY.get(feature)
     if entry is None:
         return f"{feature}={value}"
