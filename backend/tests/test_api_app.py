@@ -33,6 +33,19 @@ SAMPLE_REQUEST = {
     },
 }
 
+SAMPLE_SURVEY_REQUEST = {
+    "survey_version": "survey_v1",
+    "answers": {
+        "understood_result": 4,
+        "trusted_result": 3,
+        "most_confusing_part": "Debt ratio wording",
+    },
+    "context": {
+        "time_on_results_ms": 12000,
+        "time_on_survey_ms": 8000,
+    },
+}
+
 
 class AssessmentApiTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -45,6 +58,9 @@ class AssessmentApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["status"], "ok")
         self.assertIn("artifact_version", payload)
+        self.assertIn("store_backend", payload)
+        self.assertIn("auth_mode", payload)
+        self.assertIn("experiment_name", payload)
 
     def test_reference_schema_endpoint(self) -> None:
         response = self.client.get("/v1/reference/onboarding-schema")
@@ -61,12 +77,49 @@ class AssessmentApiTests(unittest.TestCase):
         created = create_response.json()
         self.assertEqual(created["status"], "complete")
         self.assertGreater(len(created["drivers"]), 0)
+        self.assertIn(created["experiment"]["arm"], {
+            "control",
+            "structured_explanation",
+            "llm_explanation",
+        })
         self.assertEqual(created["explanation"]["status"], "not_generated")
 
         fetch_response = self.client.get(f"/v1/assessments/{created['assessment_id']}")
         self.assertEqual(fetch_response.status_code, 200)
         fetched = fetch_response.json()
         self.assertEqual(fetched["assessment_id"], created["assessment_id"])
+
+    def test_submit_survey_response(self) -> None:
+        create_response = self.client.post("/v1/assessments", json=SAMPLE_REQUEST)
+        self.assertEqual(create_response.status_code, 201)
+        created = create_response.json()
+
+        survey_response = self.client.post(
+            f"/v1/assessments/{created['assessment_id']}/survey-responses",
+            json=SAMPLE_SURVEY_REQUEST,
+        )
+        self.assertEqual(survey_response.status_code, 201)
+        receipt = survey_response.json()
+        self.assertEqual(receipt["assessment_id"], created["assessment_id"])
+        self.assertEqual(receipt["survey_version"], "survey_v1")
+        self.assertEqual(receipt["experiment_arm"], created["experiment"]["arm"])
+
+    def test_duplicate_survey_response_returns_conflict(self) -> None:
+        create_response = self.client.post("/v1/assessments", json=SAMPLE_REQUEST)
+        self.assertEqual(create_response.status_code, 201)
+        created = create_response.json()
+
+        first = self.client.post(
+            f"/v1/assessments/{created['assessment_id']}/survey-responses",
+            json=SAMPLE_SURVEY_REQUEST,
+        )
+        self.assertEqual(first.status_code, 201)
+
+        second = self.client.post(
+            f"/v1/assessments/{created['assessment_id']}/survey-responses",
+            json=SAMPLE_SURVEY_REQUEST,
+        )
+        self.assertEqual(second.status_code, 409)
 
 
 if __name__ == "__main__":

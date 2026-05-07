@@ -6,6 +6,18 @@ Run all commands from the repo root of your local clone:
 
 - `ana_600_capstone/`
 
+## Environment setup
+
+Copy [.env.example](/C:/Users/john_/Desktop/ana_600_capstone/.env.example) to `.env`
+if you want the Python API to load backend settings automatically.
+
+The backend now auto-loads:
+
+- repo root `.env`
+- `backend/.env`
+
+Process environment variables still take precedence over values in those files.
+
 ## Install backend dependencies
 
 ```shell
