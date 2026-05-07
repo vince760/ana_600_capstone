@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import AuthenticationError, RequestActor, RequestActorResolver
 from .env import load_backend_env
@@ -40,6 +41,27 @@ def _resolve_artifact_path() -> Path:
     if configured:
         return Path(configured)
     return DEFAULT_ARTIFACT_PATH
+
+
+def _resolve_cors_origins() -> list[str]:
+    configured = os.getenv("FINSIGHT_CORS_ORIGINS")
+    if configured:
+        origins = [value.strip() for value in configured.split(",") if value.strip()]
+        if origins:
+            return origins
+
+    return [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
+
+def _resolve_cors_origin_regex() -> str:
+    configured = os.getenv("FINSIGHT_CORS_ORIGIN_REGEX")
+    if configured and configured.strip():
+        return configured.strip()
+
+    return r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
 
 
 def _resolve_store() -> AssessmentStore:
@@ -135,6 +157,15 @@ app = FastAPI(
     "Assessment service for expenshilo probability scoring and SHAP driver retrieval."
     ),
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_resolve_cors_origins(),
+    allow_origin_regex=_resolve_cors_origin_regex(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

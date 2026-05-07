@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import unittest
 
 from fastapi.testclient import TestClient
@@ -49,7 +50,26 @@ SAMPLE_SURVEY_REQUEST = {
 
 class AssessmentApiTests(unittest.TestCase):
     def setUp(self) -> None:
+        self._original_env = {
+            "FINSIGHT_STORE_BACKEND": os.getenv("FINSIGHT_STORE_BACKEND"),
+            "FINSIGHT_AUTH_MODE": os.getenv("FINSIGHT_AUTH_MODE"),
+        }
+        os.environ["FINSIGHT_STORE_BACKEND"] = "memory"
+        os.environ["FINSIGHT_AUTH_MODE"] = "disabled"
+        for state_key in ("assessment_service", "request_actor_resolver"):
+            if hasattr(app.state, state_key):
+                delattr(app.state, state_key)
         self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        for key, value in self._original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        for state_key in ("assessment_service", "request_actor_resolver"):
+            if hasattr(app.state, state_key):
+                delattr(app.state, state_key)
 
     def test_health_endpoint(self) -> None:
         response = self.client.get("/health")
@@ -69,6 +89,26 @@ class AssessmentApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["schema_version"], "assessment-input-v1")
         self.assertGreaterEqual(len(payload["fields"]), 10)
+
+    def test_cors_preflight_for_assessment_endpoint(self) -> None:
+        response = self.client.options(
+            "/v1/assessments",
+            headers={
+                "Origin": "http://localhost:3001",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"),
+            "http://localhost:3001",
+        )
+        self.assertIn(
+            "POST",
+            response.headers.get("access-control-allow-methods", ""),
+        )
 
     def test_create_and_fetch_assessment(self) -> None:
         create_response = self.client.post("/v1/assessments", json=SAMPLE_REQUEST)
