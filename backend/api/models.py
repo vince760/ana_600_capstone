@@ -21,6 +21,14 @@ class AssessmentStatus(str, Enum):
 
 class ExplanationStatus(str, Enum):
     not_generated = "not_generated"
+    generated = "generated"
+    failed = "failed"
+
+
+class ExplanationSource(str, Enum):
+    none = "none"
+    structured = "structured"
+    llm = "llm"
 
 
 class DriverEffect(str, Enum):
@@ -108,7 +116,10 @@ class ExplanationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: ExplanationStatus = ExplanationStatus.not_generated
+    source: ExplanationSource = ExplanationSource.none
     message: str
+    prompt_version: str | None = None
+    llm_model_name: str | None = None
 
 
 class ExperimentAssignmentResponse(BaseModel):
@@ -145,6 +156,9 @@ class HealthResponse(BaseModel):
     auth_mode: str
     experiment_name: str
     experiment_version: str
+    llm_enabled: bool
+    llm_model_name: str | None = None
+    llm_prompt_version: str | None = None
 
 
 class OnboardingFieldDefinition(BaseModel):

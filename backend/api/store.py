@@ -41,6 +41,20 @@ class PersistedSurveyResponseRecord:
     context_snapshot: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class PersistedLlmExplanationRecord:
+    explanation_id: str
+    assessment_id: str
+    user_id: str | None
+    prompt_version: str
+    llm_model_name: str
+    status: str
+    request_payload: dict[str, Any]
+    response_text: str | None
+    response_metadata: dict[str, Any] | None
+    created_at: str
+
+
 class AssessmentStore(Protocol):
     backend_name: str
 
@@ -54,10 +68,25 @@ class AssessmentStore(Protocol):
         assessment_id: str,
     ) -> PersistedAssessmentRecord | None: ...
 
+    def update_assessment(
+        self,
+        record: PersistedAssessmentRecord,
+    ) -> AssessmentResponse: ...
+
     def save_survey_response(
         self,
         record: PersistedSurveyResponseRecord,
     ) -> SurveyResponseReceipt: ...
+
+    def save_llm_explanation(
+        self,
+        record: PersistedLlmExplanationRecord,
+    ) -> PersistedLlmExplanationRecord: ...
+
+    def get_llm_explanation_record(
+        self,
+        assessment_id: str,
+    ) -> PersistedLlmExplanationRecord | None: ...
 
 
 class InMemoryAssessmentStore:
@@ -69,6 +98,7 @@ class InMemoryAssessmentStore:
         self._lock = Lock()
         self._assessments: dict[str, PersistedAssessmentRecord] = {}
         self._survey_responses: dict[str, PersistedSurveyResponseRecord] = {}
+        self._llm_explanations: dict[str, PersistedLlmExplanationRecord] = {}
 
     def save_assessment(
         self,
@@ -85,6 +115,14 @@ class InMemoryAssessmentStore:
         with self._lock:
             return self._assessments.get(assessment_id)
 
+    def update_assessment(
+        self,
+        record: PersistedAssessmentRecord,
+    ) -> AssessmentResponse:
+        with self._lock:
+            self._assessments[record.response.assessment_id] = record
+        return record.response
+
     def save_survey_response(
         self,
         record: PersistedSurveyResponseRecord,
@@ -96,6 +134,21 @@ class InMemoryAssessmentStore:
                 )
             self._survey_responses[record.receipt.assessment_id] = record
         return record.receipt
+
+    def save_llm_explanation(
+        self,
+        record: PersistedLlmExplanationRecord,
+    ) -> PersistedLlmExplanationRecord:
+        with self._lock:
+            self._llm_explanations[record.assessment_id] = record
+        return record
+
+    def get_llm_explanation_record(
+        self,
+        assessment_id: str,
+    ) -> PersistedLlmExplanationRecord | None:
+        with self._lock:
+            return self._llm_explanations.get(assessment_id)
 
 
 class SupabaseAssessmentStore:
@@ -231,10 +284,52 @@ class SupabaseAssessmentStore:
             "model_features": record.model_features,
             "drivers": [driver.model_dump(mode="json") for driver in record.response.drivers],
             "explanation_status": record.response.explanation.status.value,
+            "explanation_source": record.response.explanation.source.value,
             "explanation_message": record.response.explanation.message,
+            "explanation_prompt_version": record.response.explanation.prompt_version,
+            "explanation_llm_model_name": record.response.explanation.llm_model_name,
             "response_payload": response_payload,
         }
         self._insert("assessments", payload)
+        return record.response
+
+    def update_assessment(
+        self,
+        record: PersistedAssessmentRecord,
+    ) -> AssessmentResponse:
+        response_payload = record.response.model_dump(mode="json")
+        payload = {
+            "status": record.response.status.value,
+            "experiment_name": record.response.experiment.experiment_name,
+            "experiment_version": record.response.experiment.experiment_version,
+            "experiment_arm": record.response.experiment.arm.value,
+            "prediction_target": record.response.prediction.target,
+            "prediction_probability": record.response.prediction.probability,
+            "model_version": record.response.prediction.model_version,
+            "feature_version": record.response.prediction.feature_version,
+            "prediction_model_name": record.response.prediction.prediction_model_name,
+            "shap_model_name": record.response.prediction.shap_model_name,
+            "raw_input_snapshot": record.raw_input_snapshot,
+            "research_snapshot": record.research_snapshot,
+            "context_snapshot": record.context_snapshot,
+            "normalized_input": record.normalized_input,
+            "engineered_features": record.engineered_features,
+            "model_features": record.model_features,
+            "drivers": [driver.model_dump(mode="json") for driver in record.response.drivers],
+            "explanation_status": record.response.explanation.status.value,
+            "explanation_source": record.response.explanation.source.value,
+            "explanation_message": record.response.explanation.message,
+            "explanation_prompt_version": record.response.explanation.prompt_version,
+            "explanation_llm_model_name": record.response.explanation.llm_model_name,
+            "response_payload": response_payload,
+        }
+        self._request(
+            "PATCH",
+            "assessments",
+            params={"id": f"eq.{quote(record.response.assessment_id, safe='')}"},
+            json_body=payload,
+            extra_headers={"Prefer": "return=representation"},
+        )
         return record.response
 
     def get_assessment_record(
@@ -294,3 +389,46 @@ class SupabaseAssessmentStore:
             raise
 
         return record.receipt
+
+    def save_llm_explanation(
+        self,
+        record: PersistedLlmExplanationRecord,
+    ) -> PersistedLlmExplanationRecord:
+        payload = {
+            "id": record.explanation_id,
+            "assessment_id": record.assessment_id,
+            "user_id": record.user_id,
+            "prompt_version": record.prompt_version,
+            "llm_model_name": record.llm_model_name,
+            "status": record.status,
+            "request_payload": record.request_payload,
+            "response_text": record.response_text,
+            "response_metadata": record.response_metadata,
+            "created_at": record.created_at,
+        }
+        self._insert("llm_explanations", payload)
+        return record
+
+    def get_llm_explanation_record(
+        self,
+        assessment_id: str,
+    ) -> PersistedLlmExplanationRecord | None:
+        row = self._select_one(
+            "llm_explanations",
+            filters={"assessment_id": f"eq.{quote(assessment_id, safe='')}"},
+        )
+        if row is None:
+            return None
+
+        return PersistedLlmExplanationRecord(
+            explanation_id=row["id"],
+            assessment_id=row["assessment_id"],
+            user_id=row.get("user_id"),
+            prompt_version=row["prompt_version"],
+            llm_model_name=row["llm_model_name"],
+            status=row["status"],
+            request_payload=row.get("request_payload") or {},
+            response_text=row.get("response_text"),
+            response_metadata=row.get("response_metadata"),
+            created_at=row["created_at"],
+        )

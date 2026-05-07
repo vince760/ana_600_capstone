@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 import secrets
 from uuid import uuid4
@@ -11,14 +12,13 @@ from uuid import uuid4
 from backend.inference import AssessmentInput, ExpenshiloPredictor, ValidationError, load_artifact
 
 from .auth import RequestActor
+from .explanations import ExplanationService
 from .models import (
     AssessmentResponse,
     AssessmentStatus,
     CreateSurveyResponseRequest,
     CreateAssessmentRequest,
     DriverResponse,
-    ExplanationResponse,
-    ExplanationStatus,
     ExperimentArm,
     ExperimentAssignmentResponse,
     HealthResponse,
@@ -29,7 +29,9 @@ from .store import (
     AssessmentStore,
     DuplicateSurveyResponseError,
     InMemoryAssessmentStore,
+    PersistenceError,
     PersistedAssessmentRecord,
+    PersistedLlmExplanationRecord,
     PersistedSurveyResponseRecord,
 )
 
@@ -39,6 +41,7 @@ DEFAULT_ARTIFACT_PATH = (
 )
 DEFAULT_EXPERIMENT_NAME = "assessment_explanation"
 DEFAULT_EXPERIMENT_VERSION = "v1"
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -73,12 +76,14 @@ class AssessmentService:
         store: AssessmentStore | None = None,
         auth_mode: str = "disabled",
         experiment_assigner: ExperimentAssigner | None = None,
+        explanation_service: ExplanationService | None = None,
     ) -> None:
         self.predictor = predictor
         self.artifact_path = artifact_path
         self.store = store or InMemoryAssessmentStore()
         self.auth_mode = auth_mode
         self.experiment_assigner = experiment_assigner or ExperimentAssigner()
+        self.explanation_service = explanation_service or ExplanationService()
 
     @classmethod
     def from_artifact_path(
@@ -88,6 +93,7 @@ class AssessmentService:
         store: AssessmentStore | None = None,
         auth_mode: str = "disabled",
         experiment_assigner: ExperimentAssigner | None = None,
+        explanation_service: ExplanationService | None = None,
     ) -> "AssessmentService":
         artifact = load_artifact(artifact_path)
         predictor = ExpenshiloPredictor(artifact)
@@ -97,6 +103,7 @@ class AssessmentService:
             store=store,
             auth_mode=auth_mode,
             experiment_assigner=experiment_assigner,
+            explanation_service=explanation_service,
         )
 
     def build_health(self) -> HealthResponse:
@@ -110,6 +117,9 @@ class AssessmentService:
             auth_mode=self.auth_mode,
             experiment_name=self.experiment_assigner.experiment_name,
             experiment_version=self.experiment_assigner.experiment_version,
+            llm_enabled=self.explanation_service.llm_enabled,
+            llm_model_name=self.explanation_service.llm_model_name,
+            llm_prompt_version=self.explanation_service.llm_prompt_version,
         )
 
     def create_assessment(
@@ -127,6 +137,15 @@ class AssessmentService:
         created_at = datetime.now(timezone.utc)
         experiment = self.experiment_assigner.assign(created_at)
         context_snapshot = request.context.model_dump(exclude_none=True) if request.context else None
+        driver_responses = self._build_driver_responses(prediction_result)
+
+        explanation_outcome = self.explanation_service.build_for_arm(
+            assessment_id=assessment_id,
+            probability=prediction_result.probability,
+            experiment_arm=experiment.arm,
+            drivers=driver_responses,
+        )
+
         response = AssessmentResponse(
             assessment_id=assessment_id,
             status=AssessmentStatus.complete,
@@ -140,24 +159,8 @@ class AssessmentService:
                 shap_model_name=prediction_result.shap_model_name,
             ),
             experiment=experiment,
-            drivers=[
-                DriverResponse(
-                    feature_key=driver.feature_key,
-                    display_name=driver.display_name,
-                    normalized_value=driver.normalized_value,
-                    shap_value=driver.shap_value,
-                    effect=driver.effect,
-                    plain_description=driver.plain_description,
-                )
-                for driver in prediction_result.drivers
-            ],
-            explanation=ExplanationResponse(
-                status=ExplanationStatus.not_generated,
-                message=(
-                    "Plain-language explanation generation will be added in a later phase. "
-                    "This response currently includes deterministic prediction and SHAP drivers only."
-                ),
-            ),
+            drivers=driver_responses,
+            explanation=explanation_outcome.response,
         )
         record = PersistedAssessmentRecord(
             response=response,
@@ -169,7 +172,43 @@ class AssessmentService:
             engineered_features=prediction_result.snapshot.engineered_features,
             model_features=prediction_result.snapshot.model_features,
         )
-        return self.store.save_assessment(record)
+        saved_response = self.store.save_assessment(record)
+
+        if explanation_outcome.llm_record is not None:
+            llm_record = PersistedLlmExplanationRecord(
+                explanation_id=str(uuid4()),
+                assessment_id=assessment_id,
+                user_id=actor.user_id,
+                prompt_version=explanation_outcome.llm_record.prompt_version,
+                llm_model_name=explanation_outcome.llm_record.llm_model_name,
+                status=explanation_outcome.llm_record.status,
+                request_payload=explanation_outcome.llm_record.request_payload,
+                response_text=explanation_outcome.llm_record.response_text,
+                response_metadata=explanation_outcome.llm_record.response_metadata,
+                created_at=explanation_outcome.llm_record.created_at.isoformat().replace("+00:00", "Z"),
+            )
+            try:
+                self.store.save_llm_explanation(llm_record)
+            except PersistenceError:
+                LOGGER.exception(
+                    "Failed to persist LLM explanation log for assessment %s",
+                    assessment_id,
+                )
+
+        return saved_response
+
+    def _build_driver_responses(self, prediction_result) -> list[DriverResponse]:
+        return [
+            DriverResponse(
+                feature_key=driver.feature_key,
+                display_name=driver.display_name,
+                normalized_value=driver.normalized_value,
+                shap_value=driver.shap_value,
+                effect=driver.effect,
+                plain_description=driver.plain_description,
+            )
+            for driver in prediction_result.drivers
+        ]
 
     def get_assessment(
         self,

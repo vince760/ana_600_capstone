@@ -107,8 +107,11 @@ export interface AssessmentPayload {
   }
   drivers: DriverPayload[]
   explanation: {
-    status: string
+    status: 'not_generated' | 'generated' | 'failed'
+    source: 'none' | 'structured' | 'llm'
     message: string
+    prompt_version?: string | null
+    llm_model_name?: string | null
   }
 }
 

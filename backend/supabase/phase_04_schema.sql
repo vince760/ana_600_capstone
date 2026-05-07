@@ -31,6 +31,11 @@ create table if not exists public.assessments (
   response_payload jsonb not null
 );
 
+alter table public.assessments
+  add column if not exists explanation_source text,
+  add column if not exists explanation_prompt_version text,
+  add column if not exists explanation_llm_model_name text;
+
 create index if not exists assessments_user_id_idx
   on public.assessments (user_id);
 

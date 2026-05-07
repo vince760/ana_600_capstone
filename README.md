@@ -106,6 +106,7 @@ src/
 - [CLI Commands](docs/cli-commands.md) - Machine-agnostic command reference for exporting the model, running tests, and starting the API
 - [Frontend API Handoff](docs/frontend-api-handoff.md) - Short backend handoff with the current endpoints, assessment payload, and Phase 3 caveats
 - [Phase 4 Persistence and Experiments](docs/phase-04-persistence-and-experiments.md) - Supabase persistence, experiment assignment, and survey tracking setup
+- [Phase 5 Claude Explanations](docs/phase-05-llm-explanations.md) - Anthropic-backed explanation generation, logging, and env setup
 
 ## Backend 
 

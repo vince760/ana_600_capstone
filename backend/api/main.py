@@ -1,4 +1,4 @@
-"""FastAPI app for the Phase 3 assessment API."""
+"""FastAPI app for the assessment API."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import AuthenticationError, RequestActor, RequestActorResolver
 from .env import load_backend_env
+from .explanations import ExplanationService
 from .models import (
     AssessmentResponse,
     CreateAssessmentRequest,
@@ -110,12 +111,14 @@ def _build_assessment_service() -> AssessmentService:
     store = _resolve_store()
     actor_resolver = RequestActorResolver.from_env()
     experiment_assigner = _resolve_experiment_assigner()
+    explanation_service = ExplanationService.from_env()
     app.state.request_actor_resolver = actor_resolver
     return AssessmentService.from_artifact_path(
         artifact_path,
         store=store,
         auth_mode=actor_resolver.auth_mode,
         experiment_assigner=experiment_assigner,
+        explanation_service=explanation_service,
     )
 
 

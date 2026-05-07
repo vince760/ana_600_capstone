@@ -53,9 +53,11 @@ class AssessmentApiTests(unittest.TestCase):
         self._original_env = {
             "FINSIGHT_STORE_BACKEND": os.getenv("FINSIGHT_STORE_BACKEND"),
             "FINSIGHT_AUTH_MODE": os.getenv("FINSIGHT_AUTH_MODE"),
+            "FINSIGHT_EXPERIMENT_ARMS": os.getenv("FINSIGHT_EXPERIMENT_ARMS"),
         }
         os.environ["FINSIGHT_STORE_BACKEND"] = "memory"
         os.environ["FINSIGHT_AUTH_MODE"] = "disabled"
+        os.environ["FINSIGHT_EXPERIMENT_ARMS"] = "control"
         for state_key in ("assessment_service", "request_actor_resolver"):
             if hasattr(app.state, state_key):
                 delattr(app.state, state_key)
@@ -117,11 +119,7 @@ class AssessmentApiTests(unittest.TestCase):
         created = create_response.json()
         self.assertEqual(created["status"], "complete")
         self.assertGreater(len(created["drivers"]), 0)
-        self.assertIn(created["experiment"]["arm"], {
-            "control",
-            "structured_explanation",
-            "llm_explanation",
-        })
+        self.assertEqual(created["experiment"]["arm"], "control")
         self.assertEqual(created["explanation"]["status"], "not_generated")
 
         fetch_response = self.client.get(f"/v1/assessments/{created['assessment_id']}")
