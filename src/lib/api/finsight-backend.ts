@@ -55,6 +55,17 @@ async function request<T>(
   return response.json() as Promise<T>
 }
 
+function normalizeAssessmentPayload(payload: AssessmentPayload): AssessmentPayload {
+  return {
+    ...payload,
+    explanation: {
+      ...payload.explanation,
+      factor_explanations: payload.explanation?.factor_explanations ?? [],
+      recommendation_scenarios: payload.explanation?.recommendation_scenarios ?? [],
+    },
+  }
+}
+
 export interface AssessmentInputPayload {
   primary_user_age_years: number
   num_children_under_18: number
@@ -77,6 +88,13 @@ export interface AssessmentRequestPayload {
   }
 }
 
+export type AssessmentInputOverridesPayload = Partial<AssessmentInputPayload>
+
+export interface SimulateAssessmentRequestPayload {
+  input?: AssessmentInputPayload
+  input_overrides?: AssessmentInputOverridesPayload
+}
+
 export interface DriverPayload {
   feature_key: string
   display_name: string
@@ -84,6 +102,25 @@ export interface DriverPayload {
   shap_value: number
   effect: 'increases_probability' | 'decreases_probability'
   plain_description: string
+}
+
+export interface ExplanationFactorPayload {
+  feature_key: string
+  title: string
+  summary: string
+  effect: 'increases_probability' | 'decreases_probability'
+  source: 'structured' | 'llm' | 'none'
+}
+
+export interface RecommendationScenarioPayload {
+  feature_key: string
+  title: string
+  suggested_change: string
+  summary: string
+  current_probability: number
+  projected_probability: number
+  absolute_improvement: number
+  source: 'structured' | 'llm' | 'none'
 }
 
 export interface AssessmentPayload {
@@ -112,7 +149,19 @@ export interface AssessmentPayload {
     message: string
     prompt_version?: string | null
     llm_model_name?: string | null
+    factor_explanations: ExplanationFactorPayload[]
+    recommendation_scenarios: RecommendationScenarioPayload[]
   }
+}
+
+export interface SimulatedAssessmentPayload {
+  assessment_id: string
+  base_probability: number
+  simulated_prediction: AssessmentPayload['prediction']
+  probability_delta: number
+  input: AssessmentInputPayload
+  changed_fields: string[]
+  drivers: DriverPayload[]
 }
 
 export interface SurveyRequestPayload {
@@ -137,16 +186,31 @@ export interface SurveyReceiptPayload {
 export async function createAssessment(
   payload: AssessmentRequestPayload
 ): Promise<AssessmentPayload> {
-  return request<AssessmentPayload>('/v1/assessments', {
+  const response = await request<AssessmentPayload>('/v1/assessments', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
+  return normalizeAssessmentPayload(response)
 }
 
 export async function getAssessment(
   assessmentId: string
 ): Promise<AssessmentPayload> {
-  return request<AssessmentPayload>(`/v1/assessments/${assessmentId}`)
+  const response = await request<AssessmentPayload>(`/v1/assessments/${assessmentId}`)
+  return normalizeAssessmentPayload(response)
+}
+
+export async function simulateAssessment(
+  assessmentId: string,
+  payload: SimulateAssessmentRequestPayload
+): Promise<SimulatedAssessmentPayload> {
+  return request<SimulatedAssessmentPayload>(
+    `/v1/assessments/${assessmentId}/simulations`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export async function submitSurveyResponse(

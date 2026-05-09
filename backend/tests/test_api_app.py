@@ -47,6 +47,13 @@ SAMPLE_SURVEY_REQUEST = {
     },
 }
 
+SAMPLE_SIMULATION_REQUEST = {
+    "input_overrides": {
+        "monthly_consumer_debt_payments_usd": 450,
+        "credit_card_revolving_balance_usd": 1800,
+    }
+}
+
 
 class AssessmentApiTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -121,6 +128,8 @@ class AssessmentApiTests(unittest.TestCase):
         self.assertGreater(len(created["drivers"]), 0)
         self.assertEqual(created["experiment"]["arm"], "control")
         self.assertEqual(created["explanation"]["status"], "not_generated")
+        self.assertEqual(created["explanation"]["factor_explanations"], [])
+        self.assertEqual(created["explanation"]["recommendation_scenarios"], [])
 
         fetch_response = self.client.get(f"/v1/assessments/{created['assessment_id']}")
         self.assertEqual(fetch_response.status_code, 200)
@@ -141,6 +150,31 @@ class AssessmentApiTests(unittest.TestCase):
         self.assertEqual(receipt["assessment_id"], created["assessment_id"])
         self.assertEqual(receipt["survey_version"], "survey_v1")
         self.assertEqual(receipt["experiment_arm"], created["experiment"]["arm"])
+
+    def test_simulate_assessment_returns_non_persisted_prediction(self) -> None:
+        create_response = self.client.post("/v1/assessments", json=SAMPLE_REQUEST)
+        self.assertEqual(create_response.status_code, 201)
+        created = create_response.json()
+
+        simulation_response = self.client.post(
+            f"/v1/assessments/{created['assessment_id']}/simulations",
+            json=SAMPLE_SIMULATION_REQUEST,
+        )
+
+        self.assertEqual(simulation_response.status_code, 200)
+        simulation = simulation_response.json()
+        self.assertEqual(simulation["assessment_id"], created["assessment_id"])
+        self.assertEqual(
+            simulation["base_probability"],
+            created["prediction"]["probability"],
+        )
+        self.assertIn(
+            "monthly_consumer_debt_payments_usd",
+            simulation["changed_fields"],
+        )
+        self.assertGreaterEqual(simulation["simulated_prediction"]["probability"], 0)
+        self.assertLessEqual(simulation["simulated_prediction"]["probability"], 1)
+        self.assertGreater(len(simulation["drivers"]), 0)
 
     def test_duplicate_survey_response_returns_conflict(self) -> None:
         create_response = self.client.post("/v1/assessments", json=SAMPLE_REQUEST)

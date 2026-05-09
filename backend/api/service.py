@@ -16,6 +16,7 @@ from .explanations import ExplanationService
 from .models import (
     AssessmentResponse,
     AssessmentStatus,
+    AssessmentInputPayload,
     CreateSurveyResponseRequest,
     CreateAssessmentRequest,
     DriverResponse,
@@ -23,6 +24,8 @@ from .models import (
     ExperimentAssignmentResponse,
     HealthResponse,
     PredictionResponse,
+    SimulateAssessmentRequest,
+    SimulatedAssessmentResponse,
     SurveyResponseReceipt,
 )
 from .store import (
@@ -141,9 +144,11 @@ class AssessmentService:
 
         explanation_outcome = self.explanation_service.build_for_arm(
             assessment_id=assessment_id,
+            assessment_input=assessment_input,
             probability=prediction_result.probability,
             experiment_arm=experiment.arm,
             drivers=driver_responses,
+            predict_probability=self.predictor.predict_probability,
         )
 
         response = AssessmentResponse(
@@ -221,6 +226,56 @@ class AssessmentService:
         if record.user_id is not None and actor.user_id != record.user_id:
             return None
         return record.response
+
+    def simulate_assessment(
+        self,
+        assessment_id: str,
+        request: SimulateAssessmentRequest,
+        actor: RequestActor,
+    ) -> SimulatedAssessmentResponse | None:
+        assessment_record = self.store.get_assessment_record(assessment_id)
+        if assessment_record is None:
+            return None
+        if assessment_record.user_id is not None and actor.user_id != assessment_record.user_id:
+            return None
+
+        base_input = dict(assessment_record.raw_input_snapshot)
+        if request.input is not None:
+            simulated_input_payload = request.input.model_dump()
+        else:
+            simulated_input_payload = {
+                **base_input,
+                **request.input_overrides.model_dump(exclude_none=True),
+            }
+
+        try:
+            simulated_input = AssessmentInput.from_mapping(simulated_input_payload)
+        except ValidationError as exc:
+            raise ValueError(str(exc)) from exc
+
+        simulated_result = self.predictor.predict(simulated_input, top_k=5)
+        base_probability = assessment_record.response.prediction.probability
+        changed_fields = [
+            field_name
+            for field_name, value in simulated_input.to_dict().items()
+            if base_input.get(field_name) != value
+        ]
+
+        return SimulatedAssessmentResponse(
+            assessment_id=assessment_id,
+            base_probability=base_probability,
+            simulated_prediction=PredictionResponse(
+                probability=simulated_result.probability,
+                model_version=simulated_result.model_version,
+                feature_version=simulated_result.feature_version,
+                prediction_model_name=simulated_result.prediction_model_name,
+                shap_model_name=simulated_result.shap_model_name,
+            ),
+            probability_delta=simulated_result.probability - base_probability,
+            input=AssessmentInputPayload.model_validate(simulated_input.to_dict()),
+            changed_fields=changed_fields,
+            drivers=self._build_driver_responses(simulated_result),
+        )
 
     def submit_survey_response(
         self,

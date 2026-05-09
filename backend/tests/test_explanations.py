@@ -88,7 +88,15 @@ class AssessmentExplanationTests(unittest.TestCase):
         self.assertEqual(response.explanation.status.value, "generated")
         self.assertEqual(response.explanation.source.value, "structured")
         self.assertEqual(response.explanation.prompt_version, DEFAULT_STRUCTURED_PROMPT_VERSION)
-        self.assertIn("expense strain", response.explanation.message)
+        self.assertIn("Survey of Consumer Finances", response.explanation.message)
+        self.assertGreaterEqual(len(response.explanation.factor_explanations), 3)
+        self.assertGreaterEqual(len(response.explanation.recommendation_scenarios), 1)
+        self.assertTrue(
+            any(
+                scenario.feature_key in {"PAYMENT_TO_INC", "CONSPAY", "FOODHOME"}
+                for scenario in response.explanation.recommendation_scenarios
+            )
+        )
 
     def test_llm_explanation_arm_generates_and_logs_claude_output(self) -> None:
         service, store = self._build_service(
@@ -103,6 +111,8 @@ class AssessmentExplanationTests(unittest.TestCase):
         self.assertEqual(response.explanation.status.value, "generated")
         self.assertEqual(response.explanation.source.value, "llm")
         self.assertEqual(response.explanation.message, "This is a generated Claude explanation.")
+        self.assertGreaterEqual(len(response.explanation.factor_explanations), 3)
+        self.assertGreaterEqual(len(response.explanation.recommendation_scenarios), 1)
         self.assertIsNotNone(llm_record)
         self.assertEqual(llm_record.status, "generated")
         self.assertEqual(llm_record.llm_model_name, "claude-opus-4-7")
@@ -119,6 +129,8 @@ class AssessmentExplanationTests(unittest.TestCase):
         self.assertEqual(response.explanation.status.value, "failed")
         self.assertEqual(response.explanation.source.value, "llm")
         self.assertIn("could not be generated", response.explanation.message)
+        self.assertGreaterEqual(len(response.explanation.factor_explanations), 3)
+        self.assertGreaterEqual(len(response.explanation.recommendation_scenarios), 1)
         self.assertIsNotNone(llm_record)
         self.assertEqual(llm_record.status, "failed")
 
