@@ -246,13 +246,6 @@ export const mockRisk: RiskOutput = {
   ],
 }
 
-export const mockDashboardMetrics = {
-  weeklyProjectedBalance: { value: 4580, trend: 3.2 },
-  monthlyCashFlow: { value: 1240, isPositive: true },
-  savingsBuffer: { value: 2.4, unit: 'months' },
-  burnRate: { value: 340, unit: '/week' },
-}
-
 export const mockGoal = {
   label: 'Emergency Fund',
   targetAmount: 15000,

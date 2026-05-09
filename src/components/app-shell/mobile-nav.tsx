@@ -3,16 +3,16 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard,
   TrendingUp,
   ShieldAlert,
   FlaskConical,
   MessageSquare,
+  Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/upload', label: 'Upload', icon: Upload },
   { href: '/forecast', label: 'Forecast', icon: TrendingUp },
   { href: '/risk', label: 'Risk', icon: ShieldAlert },
   { href: '/simulator', label: 'Simulator', icon: FlaskConical },
