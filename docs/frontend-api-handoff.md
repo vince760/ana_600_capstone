@@ -25,6 +25,7 @@ Use this doc for the current backend.
 - `GET /v1/reference/onboarding-schema`
 - `POST /v1/assessments`
 - `GET /v1/assessments/{assessment_id}`
+- `POST /v1/assessments/{assessment_id}/simulations`
 - `POST /v1/assessments/{assessment_id}/survey-responses`
 
 ## Create Assessment
@@ -104,6 +105,77 @@ Use this doc for the current backend.
 }
 ```
 
+## Simulate Result-Screen Calculator Changes
+
+`POST /v1/assessments/{assessment_id}/simulations`
+
+Use this endpoint when the user adjusts result-screen inputs like a calculator.
+It re-scores the saved model but does not create a new persisted assessment,
+does not assign a new experiment arm, and does not call Claude.
+
+### Request body with partial overrides
+
+```json
+{
+  "input_overrides": {
+    "monthly_consumer_debt_payments_usd": 450,
+    "credit_card_revolving_balance_usd": 1800
+  }
+}
+```
+
+### Request body with full edited input
+
+```json
+{
+  "input": {
+    "primary_user_age_years": 34,
+    "num_children_under_18": 1,
+    "annual_household_income_usd": 72000,
+    "total_household_debt_usd": 18500,
+    "monthly_consumer_debt_payments_usd": 450,
+    "liquid_assets_usd": 9000,
+    "credit_card_revolving_balance_usd": 1800,
+    "monthly_grocery_spend_usd": 650,
+    "monthly_dining_spend_usd": 280
+  }
+}
+```
+
+### Response shape
+
+```json
+{
+  "assessment_id": "uuid",
+  "base_probability": 0.6,
+  "simulated_prediction": {
+    "target": "expenshilo_probability",
+    "probability": 0.42,
+    "model_version": "expenshilo-artifact-v1",
+    "feature_version": "scf-expenshilo-features-v1",
+    "prediction_model_name": "XGBoost",
+    "shap_model_name": "XGBoost"
+  },
+  "probability_delta": -0.18,
+  "input": {
+    "primary_user_age_years": 34,
+    "num_children_under_18": 1,
+    "annual_household_income_usd": 72000,
+    "total_household_debt_usd": 18500,
+    "monthly_consumer_debt_payments_usd": 450,
+    "liquid_assets_usd": 9000,
+    "credit_card_revolving_balance_usd": 1800,
+    "monthly_grocery_spend_usd": 650,
+    "monthly_dining_spend_usd": 280
+  },
+  "changed_fields": [
+    "monthly_consumer_debt_payments_usd",
+    "credit_card_revolving_balance_usd"
+  ],
+  "drivers": []
+}
+```
+
 ## Submit Survey Response
 
 `POST /v1/assessments/{assessment_id}/survey-responses`
@@ -148,5 +220,6 @@ Use this doc for the current backend.
 - `structured_explanation` returns a deterministic plain-language summary.
 - `llm_explanation` returns a Claude-generated explanation when the backend has Anthropic configured, otherwise it can return `status = "failed"`.
 - Use `assessment_id` from the create response if you need to fetch the saved result again.
+- Use the simulations endpoint for editable calculator behavior on the result page.
 - Use `POST /v1/assessments/{assessment_id}/survey-responses` after the results page survey is completed.
 - If you want the live field contract for the form, call `GET /v1/reference/onboarding-schema`.

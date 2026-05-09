@@ -17,6 +17,8 @@ assessment workflow.
   - `message`
   - `prompt_version`
   - `llm_model_name`
+  - `factor_explanations`
+  - `recommendation_scenarios`
 
 ## Anthropic configuration
 
@@ -41,6 +43,24 @@ Note:
 
 - the backend intentionally does not send `temperature` for current Claude Opus
   models because Anthropic rejects that field for these model ids
+- the default max token budget is intentionally high enough to avoid truncated
+  participant-facing explanations
+
+## Explanation style
+
+Participant-facing explanation text should make the SCF reference population
+clear. The summary should explain that the estimate reflects similarity to
+Survey of Consumer Finances households that reported spending more than their
+income, not a certainty that the participant will experience financial strain.
+
+Factor cards use short, plain-language summaries and remove duplicate signals
+where possible. For example, if both total debt and debt-to-income ratio appear
+in the top drivers, the card layer keeps the clearest version rather than
+showing both.
+
+Recommendation scenarios are model sensitivity checks. They re-score the saved
+model after changing one input while holding all other inputs constant. They are
+not financial advice.
 
 ## Failure behavior
 

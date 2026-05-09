@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SubmissionSource(str, Enum):
@@ -90,6 +90,38 @@ class CreateAssessmentRequest(BaseModel):
     context: AssessmentContextPayload | None = None
 
 
+class SimulationInputOverridesPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    primary_user_age_years: int | None = Field(default=None, ge=18, le=100)
+    num_children_under_18: int | None = Field(default=None, ge=0, le=20)
+    annual_household_income_usd: float | None = Field(default=None, ge=0)
+    total_household_debt_usd: float | None = Field(default=None, ge=0)
+    monthly_consumer_debt_payments_usd: float | None = Field(default=None, ge=0)
+    liquid_assets_usd: float | None = Field(default=None, ge=0)
+    credit_card_revolving_balance_usd: float | None = Field(default=None, ge=0)
+    monthly_grocery_spend_usd: float | None = Field(default=None, ge=0)
+    monthly_dining_spend_usd: float | None = Field(default=None, ge=0)
+
+
+class SimulateAssessmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input: AssessmentInputPayload | None = None
+    input_overrides: SimulationInputOverridesPayload | None = None
+
+    @model_validator(mode="after")
+    def ensure_simulation_payload_present(self) -> "SimulateAssessmentRequest":
+        if self.input is None and self.input_overrides is None:
+            raise ValueError("Either input or input_overrides must be provided")
+        if (
+            self.input_overrides is not None
+            and not self.input_overrides.model_dump(exclude_none=True)
+        ):
+            raise ValueError("input_overrides must include at least one field")
+        return self
+
+
 class PredictionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -112,6 +144,29 @@ class DriverResponse(BaseModel):
     plain_description: str
 
 
+class ExplanationFactorResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    feature_key: str
+    title: str
+    summary: str
+    effect: DriverEffect
+    source: ExplanationSource
+
+
+class RecommendationScenarioResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    feature_key: str
+    title: str
+    suggested_change: str
+    summary: str
+    current_probability: float = Field(..., ge=0, le=1)
+    projected_probability: float = Field(..., ge=0, le=1)
+    absolute_improvement: float = Field(..., ge=0)
+    source: ExplanationSource
+
+
 class ExplanationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -120,6 +175,8 @@ class ExplanationResponse(BaseModel):
     message: str
     prompt_version: str | None = None
     llm_model_name: str | None = None
+    factor_explanations: list[ExplanationFactorResponse] = Field(default_factory=list)
+    recommendation_scenarios: list[RecommendationScenarioResponse] = Field(default_factory=list)
 
 
 class ExperimentAssignmentResponse(BaseModel):
@@ -142,6 +199,18 @@ class AssessmentResponse(BaseModel):
     experiment: ExperimentAssignmentResponse
     drivers: list[DriverResponse]
     explanation: ExplanationResponse
+
+
+class SimulatedAssessmentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assessment_id: str
+    base_probability: float = Field(..., ge=0, le=1)
+    simulated_prediction: PredictionResponse
+    probability_delta: float
+    input: AssessmentInputPayload
+    changed_fields: list[str]
+    drivers: list[DriverResponse]
 
 
 class HealthResponse(BaseModel):

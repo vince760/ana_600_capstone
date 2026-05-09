@@ -65,9 +65,23 @@ class ExpenshiloPredictor:
         self.artifact = artifact
         self._explainer = shap.TreeExplainer(self.artifact.shap_model)
 
+    def build_snapshot(self, assessment_input: AssessmentInput) -> FeatureSnapshot:
+        return build_feature_snapshot(
+            assessment_input,
+            preprocessing=self.artifact.preprocessing,
+        )
+
     def _build_feature_frame(self, snapshot: FeatureSnapshot) -> pd.DataFrame:
         ordered_values = [snapshot.model_features[name] for name in self.artifact.feature_order]
         return pd.DataFrame([ordered_values], columns=list(self.artifact.feature_order))
+
+    def predict_probability_for_snapshot(self, snapshot: FeatureSnapshot) -> float:
+        feature_frame = self._build_feature_frame(snapshot)
+        return float(self.artifact.prediction_model.predict_proba(feature_frame)[0, 1])
+
+    def predict_probability(self, assessment_input: AssessmentInput) -> float:
+        snapshot = self.build_snapshot(assessment_input)
+        return self.predict_probability_for_snapshot(snapshot)
 
     def explain(self, snapshot: FeatureSnapshot, top_k: int = 5) -> list[ShapDriver]:
         feature_frame = self._build_feature_frame(snapshot)
@@ -106,12 +120,8 @@ class ExpenshiloPredictor:
         assessment_input: AssessmentInput,
         top_k: int = 5,
     ) -> PredictionResult:
-        snapshot = build_feature_snapshot(
-            assessment_input,
-            preprocessing=self.artifact.preprocessing,
-        )
-        feature_frame = self._build_feature_frame(snapshot)
-        probability = float(self.artifact.prediction_model.predict_proba(feature_frame)[0, 1])
+        snapshot = self.build_snapshot(assessment_input)
+        probability = self.predict_probability_for_snapshot(snapshot)
         drivers = self.explain(snapshot, top_k=top_k)
 
         return PredictionResult(

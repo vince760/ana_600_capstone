@@ -19,6 +19,8 @@ from .models import (
     CreateSurveyResponseRequest,
     HealthResponse,
     OnboardingSchemaResponse,
+    SimulateAssessmentRequest,
+    SimulatedAssessmentResponse,
     SurveyResponseReceipt,
 )
 from .reference import build_onboarding_schema
@@ -235,6 +237,38 @@ def get_assessment(
             detail=f"Assessment '{assessment_id}' was not found.",
         )
     return assessment
+
+
+@app.post(
+    "/v1/assessments/{assessment_id}/simulations",
+    response_model=SimulatedAssessmentResponse,
+    tags=["assessments"],
+)
+def simulate_assessment(
+    assessment_id: str,
+    request: SimulateAssessmentRequest,
+    actor: Annotated[RequestActor, Depends(resolve_request_actor)],
+) -> SimulatedAssessmentResponse:
+    service = get_assessment_service()
+    try:
+        simulation = service.simulate_assessment(assessment_id, request, actor)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except PersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    if simulation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Assessment '{assessment_id}' was not found.",
+        )
+    return simulation
 
 
 @app.post(
