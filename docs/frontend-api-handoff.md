@@ -13,10 +13,11 @@ Use this doc for the current backend.
 
 ## Current Notes
 
-- No auth is implemented yet.
-- Assessment storage is in memory only for Phase 3.
-- Restarting the API clears previously created assessments.
-- Claude explanations are not integrated yet.
+- Local development can run with auth disabled.
+- Deployed environments can require Supabase bearer tokens.
+- Storage backend can be in-memory or Supabase depending on env config.
+- If the API is using the in-memory backend, restarting the API clears previously created assessments.
+- Explanation behavior now depends on `experiment.arm`.
 
 ## Endpoints
 
@@ -24,6 +25,7 @@ Use this doc for the current backend.
 - `GET /v1/reference/onboarding-schema`
 - `POST /v1/assessments`
 - `GET /v1/assessments/{assessment_id}`
+- `POST /v1/assessments/{assessment_id}/survey-responses`
 
 ## Create Assessment
 
@@ -68,6 +70,12 @@ Use this doc for the current backend.
   "status": "complete",
   "created_at": "2026-04-30T22:00:00Z",
   "submission_source": "onboarding",
+  "experiment": {
+    "experiment_name": "assessment_explanation",
+    "experiment_version": "v1",
+    "arm": "structured_explanation",
+    "assigned_at": "2026-04-30T22:00:00Z"
+  },
   "prediction": {
     "target": "expenshilo_probability",
     "probability": 0.67,
@@ -87,9 +95,47 @@ Use this doc for the current backend.
     }
   ],
   "explanation": {
-    "status": "not_generated",
-    "message": "Plain-language explanation generation will be added in a later phase."
+    "status": "generated",
+    "source": "structured",
+    "message": "Based on the information provided, your estimated likelihood of expense strain is in the moderate range...",
+    "prompt_version": "structured_v1",
+    "llm_model_name": null
   }
+}
+```
+
+## Submit Survey Response
+
+`POST /v1/assessments/{assessment_id}/survey-responses`
+
+### Request body
+
+```json
+{
+  "survey_version": "survey_v1",
+  "answers": {
+    "understood_result": 4,
+    "trusted_result": 3,
+    "most_confusing_part": "Debt ratio wording"
+  },
+  "context": {
+    "time_on_results_ms": 12000,
+    "time_on_survey_ms": 8000
+  }
+}
+```
+
+### Response shape
+
+```json
+{
+  "survey_response_id": "uuid",
+  "assessment_id": "uuid",
+  "survey_version": "survey_v1",
+  "experiment_name": "assessment_explanation",
+  "experiment_version": "v1",
+  "experiment_arm": "structured_explanation",
+  "submitted_at": "2026-04-30T22:05:00Z"
 }
 ```
 
@@ -97,5 +143,10 @@ Use this doc for the current backend.
 
 - `research.research_consent_accepted` must be `true` or the request will fail validation.
 - `submission_source` is currently always `"onboarding"`.
+- `experiment.arm` determines which result-page explanation variant the user should see.
+- `control` may return `explanation.status = "not_generated"`.
+- `structured_explanation` returns a deterministic plain-language summary.
+- `llm_explanation` returns a Claude-generated explanation when the backend has Anthropic configured, otherwise it can return `status = "failed"`.
 - Use `assessment_id` from the create response if you need to fetch the saved result again.
+- Use `POST /v1/assessments/{assessment_id}/survey-responses` after the results page survey is completed.
 - If you want the live field contract for the form, call `GET /v1/reference/onboarding-schema`.

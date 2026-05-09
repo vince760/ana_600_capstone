@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -21,11 +21,25 @@ class AssessmentStatus(str, Enum):
 
 class ExplanationStatus(str, Enum):
     not_generated = "not_generated"
+    generated = "generated"
+    failed = "failed"
+
+
+class ExplanationSource(str, Enum):
+    none = "none"
+    structured = "structured"
+    llm = "llm"
 
 
 class DriverEffect(str, Enum):
     increases_probability = "increases_probability"
     decreases_probability = "decreases_probability"
+
+
+class ExperimentArm(str, Enum):
+    control = "control"
+    structured_explanation = "structured_explanation"
+    llm_explanation = "llm_explanation"
 
 
 class AssessmentInputPayload(BaseModel):
@@ -102,7 +116,19 @@ class ExplanationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: ExplanationStatus = ExplanationStatus.not_generated
+    source: ExplanationSource = ExplanationSource.none
     message: str
+    prompt_version: str | None = None
+    llm_model_name: str | None = None
+
+
+class ExperimentAssignmentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    experiment_name: str = Field(..., min_length=1)
+    experiment_version: str = Field(..., min_length=1)
+    arm: ExperimentArm
+    assigned_at: datetime
 
 
 class AssessmentResponse(BaseModel):
@@ -113,6 +139,7 @@ class AssessmentResponse(BaseModel):
     created_at: datetime
     submission_source: SubmissionSource
     prediction: PredictionResponse
+    experiment: ExperimentAssignmentResponse
     drivers: list[DriverResponse]
     explanation: ExplanationResponse
 
@@ -125,6 +152,13 @@ class HealthResponse(BaseModel):
     artifact_version: str
     prediction_model_name: str
     shap_model_name: str
+    store_backend: str
+    auth_mode: str
+    experiment_name: str
+    experiment_version: str
+    llm_enabled: bool
+    llm_model_name: str | None = None
+    llm_prompt_version: str | None = None
 
 
 class OnboardingFieldDefinition(BaseModel):
@@ -149,3 +183,39 @@ class OnboardingSchemaResponse(BaseModel):
     submission_source: SubmissionSource
     fields: list[OnboardingFieldDefinition]
 
+
+class SurveySubmissionContextPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    results_viewed_at: datetime | None = None
+    survey_started_at: datetime | None = None
+    submitted_at: datetime | None = None
+    time_on_results_ms: int | None = Field(default=None, ge=0)
+    time_on_survey_ms: int | None = Field(default=None, ge=0)
+
+
+class CreateSurveyResponseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    survey_version: str = Field(..., min_length=1)
+    answers: dict[str, Any]
+    context: SurveySubmissionContextPayload | None = None
+
+    @field_validator("answers")
+    @classmethod
+    def ensure_answers_present(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if not value:
+            raise ValueError("answers must include at least one survey response")
+        return value
+
+
+class SurveyResponseReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    survey_response_id: str
+    assessment_id: str
+    survey_version: str
+    experiment_name: str
+    experiment_version: str
+    experiment_arm: ExperimentArm
+    submitted_at: datetime

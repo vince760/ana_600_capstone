@@ -43,20 +43,36 @@ An AI-powered financial decision-support assistant that helps users gain clarity
    npm install
    ```
 
-3. Create a `.env.local` file with your Supabase credentials:
+3. Copy [.env.example](.env.example) and create the env files you need:
+
+   - `.env.local` for the Next.js frontend
+   - `.env` for the Python backend API
+
+4. Add your frontend Supabase credentials to `.env.local`:
 
    ```env
    NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
    ```
 
-4. Start the development server:
+5. If you want Supabase-backed backend persistence instead of the default
+   in-memory mode, add backend values to `.env` such as:
+
+   ```env
+   FINSIGHT_STORE_BACKEND=supabase
+   FINSIGHT_AUTH_MODE=supabase
+   SUPABASE_URL=your-supabase-url
+   SUPABASE_ANON_KEY=your-supabase-anon-key
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   ```
+
+6. Start the development server:
 
    ```bash
    npm run dev
    ```
 
-5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+7. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Project Structure
 
@@ -85,7 +101,12 @@ src/
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
 
+## Backend Docs
 
+- [CLI Commands](docs/cli-commands.md) - Machine-agnostic command reference for exporting the model, running tests, and starting the API
+- [Frontend API Handoff](docs/frontend-api-handoff.md) - Short backend handoff with the current endpoints, assessment payload, and Phase 3 caveats
+- [Phase 4 Persistence and Experiments](docs/phase-04-persistence-and-experiments.md) - Supabase persistence, experiment assignment, and survey tracking setup
+- [Phase 5 Claude Explanations](docs/phase-05-llm-explanations.md) - Anthropic-backed explanation generation, logging, and env setup
 
 ## Backend 
 
