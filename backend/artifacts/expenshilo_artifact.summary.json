@@ -1,0 +1,171 @@
+{
+  "prediction_model_name": "XGBoost",
+  "shap_model_name": "XGBoost",
+  "preprocessing": {
+    "feature_version": "scf-expenshilo-features-v1",
+    "fill_values": {},
+    "upper_clip_bounds": {
+      "INCOME": 29076528.056,
+      "DEBT": 5628899.999999976,
+      "CONSPAY": 6077.99999999952,
+      "FOODHOME": 36000.0,
+      "DTI": 10.0,
+      "PAYMENT_TO_INC": 0.38591756331041516,
+      "CC_TO_INC": 0.4555244522473461,
+      "LIQ_TO_INC": 7.446889825631622,
+      "FOODHOME_X_PRE_RETIREMENT": 30000.0,
+      "FOOD_DISCRETIONARY": 0.8544099668115793
+    }
+  },
+  "metrics": {
+    "dataset": {
+      "dataset_path": "C:\\Users\\john_\\Desktop\\ana_600_capstone\\backend\\data\\SCFP2022.csv",
+      "records": 22975,
+      "households": 4595,
+      "positive_rate": 0.28143634385201305,
+      "median_spend_ratio_cutoff": 0.19859775975332397,
+      "feature_version": "scf-expenshilo-features-v1",
+      "feature_names": [
+        "INCOME",
+        "DEBT",
+        "CONSPAY",
+        "FOODHOME",
+        "KIDS",
+        "DTI",
+        "PAYMENT_TO_INC",
+        "CC_TO_INC",
+        "LIQ_TO_INC",
+        "FOODHOME_X_PRE_RETIREMENT",
+        "FOOD_DISCRETIONARY"
+      ],
+      "target_stats": {
+        "median_spend_ratio_cutoff": 0.19859775975332397,
+        "self_reported_count": 11369,
+        "numerical_overspending_count": 11487,
+        "positive_count": 6466,
+        "neither_count": 6585,
+        "self_only_count": 4903,
+        "calc_only_count": 5021,
+        "positive_rate": 0.28143634385201305
+      },
+      "preprocessing_summary": {
+        "fill_counts": {},
+        "upper_clip_bounds": {
+          "INCOME": 29076528.056,
+          "DEBT": 5628899.999999976,
+          "CONSPAY": 6077.99999999952,
+          "FOODHOME": 36000.0,
+          "DTI": 10.0,
+          "PAYMENT_TO_INC": 0.38591756331041516,
+          "CC_TO_INC": 0.4555244522473461,
+          "LIQ_TO_INC": 7.446889825631622,
+          "FOODHOME_X_PRE_RETIREMENT": 30000.0,
+          "FOOD_DISCRETIONARY": 0.8544099668115793
+        },
+        "clip_counts": {
+          "INCOME": 229,
+          "DEBT": 230,
+          "CONSPAY": 230,
+          "FOODHOME": 194,
+          "DTI": 221,
+          "PAYMENT_TO_INC": 229,
+          "CC_TO_INC": 230,
+          "LIQ_TO_INC": 230,
+          "FOODHOME_X_PRE_RETIREMENT": 208,
+          "FOOD_DISCRETIONARY": 230
+        }
+      }
+    },
+    "split": {
+      "train_records": 18380,
+      "test_records": 4595,
+      "train_households": 3676,
+      "test_households": 919,
+      "train_positive_rate": 0.28171926006528836,
+      "test_positive_rate": 0.28030467899891187
+    },
+    "model_selection": {
+      "best_prediction_model": "XGBoost",
+      "shap_model_name": "XGBoost"
+    },
+    "calibration": {
+      "method": "group_aware_prefit_isotonic",
+      "calibrated_auc_roc": 0.7973387666290402,
+      "calibrated_accuracy": 0.7340587595212187,
+      "calibrated_brier": 0.16022188312301244
+    },
+    "all_model_results": {
+      "Logistic Regression": {
+        "accuracy": 0.7281828073993472,
+        "auc_roc": 0.7999296147640897,
+        "cv_auc_mean": 0.8114727010404865,
+        "cv_auc_std": 0.01913469251232615,
+        "f1": 0.617457886676876,
+        "f1_macro": 0.7033280994565814,
+        "brier": 0.1937030387211931
+      },
+      "Random Forest": {
+        "accuracy": 0.7455930359085963,
+        "auc_roc": 0.8158548026302197,
+        "cv_auc_mean": 0.8346199041087811,
+        "cv_auc_std": 0.00924690502944186,
+        "f1": 0.5759883931809938,
+        "f1_macro": 0.6971345665578528,
+        "brier": 0.15611490105667997
+      },
+      "XGBoost": {
+        "accuracy": 0.7414581066376497,
+        "auc_roc": 0.8135704519117174,
+        "cv_auc_mean": 0.8391808560356881,
+        "cv_auc_std": 0.01264950066030481,
+        "f1": 0.5315457413249212,
+        "f1_macro": 0.6765032583991604,
+        "brier": 0.1663779616355896
+      },
+      "Neural Network (MLP)": {
+        "accuracy": 0.7505984766050054,
+        "auc_roc": 0.8003169918129621,
+        "cv_auc_mean": 0.7833312700599536,
+        "cv_auc_std": 0.007717577346346171,
+        "f1": 0.5526932084309133,
+        "f1_macro": 0.6898951859897475,
+        "brier": 0.16449153325555707
+      }
+    },
+    "preprocessing": {
+      "feature_version": "scf-expenshilo-features-v1",
+      "fill_values": {},
+      "upper_clip_bounds": {
+        "INCOME": 29076528.056,
+        "DEBT": 5628899.999999976,
+        "CONSPAY": 6077.99999999952,
+        "FOODHOME": 36000.0,
+        "DTI": 10.0,
+        "PAYMENT_TO_INC": 0.38591756331041516,
+        "CC_TO_INC": 0.4555244522473461,
+        "LIQ_TO_INC": 7.446889825631622,
+        "FOODHOME_X_PRE_RETIREMENT": 30000.0,
+        "FOOD_DISCRETIONARY": 0.8544099668115793
+      }
+    }
+  },
+  "created_at": "2026-05-01T00:15:49.386310+00:00",
+  "artifact_version": "expenshilo-artifact-v1",
+  "feature_version": "scf-expenshilo-features-v1",
+  "feature_order": [
+    "INCOME",
+    "DEBT",
+    "CONSPAY",
+    "FOODHOME",
+    "KIDS",
+    "DTI",
+    "PAYMENT_TO_INC",
+    "CC_TO_INC",
+    "LIQ_TO_INC",
+    "FOODHOME_X_PRE_RETIREMENT",
+    "FOOD_DISCRETIONARY"
+  ],
+  "target_name": "expenshilo_probability",
+  "source_dataset": "SCFP2022.csv",
+  "target_definition": "target = (EXPENSHILO == 1) AND (SPEND_RATIO > dataset median)"
+}
