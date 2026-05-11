@@ -53,3 +53,5 @@ backend/eda_output/
 backend/outputs/*
 backend/artifacts/*
 !backend/artifacts/.gitkeep
+!backend/artifacts/expenshilo_artifact.pkl
+!backend/artifacts/expenshilo_artifact.summary.json

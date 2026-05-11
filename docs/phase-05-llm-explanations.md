@@ -11,6 +11,9 @@ assessment workflow.
 - `llm_explanation` assessments now call Claude through the Anthropic Messages
   API
 - LLM attempts are saved to `llm_explanations`
+- factor cards and recommendation scenarios are generated deterministically so
+  the frontend has stable UI-ready explanation pieces even if Claude is
+  unavailable
 - assessment responses now include richer explanation metadata:
   - `status`
   - `source`
@@ -60,7 +63,13 @@ showing both.
 
 Recommendation scenarios are model sensitivity checks. They re-score the saved
 model after changing one input while holding all other inputs constant. They are
-not financial advice.
+not financial advice, and they should be labeled in the UI as "what if" model
+estimates rather than recommendations to take a specific action.
+
+The separate simulations endpoint supports user-controlled calculator behavior
+on the result page. It uses the same model artifact and returns a new predicted
+probability for edited inputs, but it does not create a new persisted assessment
+or call Claude.
 
 ## Failure behavior
 
