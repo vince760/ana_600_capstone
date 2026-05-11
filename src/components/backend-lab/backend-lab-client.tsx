@@ -102,7 +102,7 @@ export function BackendLabClient() {
   const recommendationScenarios =
     assessment?.explanation.recommendation_scenarios ?? []
   const backendBaseUrl =
-    process.env.NEXT_PUBLIC_ASSESSMENT_API_URL || 'http://127.0.0.1:8000'
+    process.env.NEXT_PUBLIC_ASSESSMENT_API_URL || 'https://finsight-assessment-api-1879fcf6be78.herokuapp.com/'
 
   function resetStatus() {
     setMessage(null)
