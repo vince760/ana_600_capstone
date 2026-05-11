@@ -23,7 +23,12 @@ example:
 NEXT_PUBLIC_ASSESSMENT_API_URL=https://finsight-assessment-api.herokuapp.com
 ```
 
-Do not include a trailing slash.
+Do not include a trailing slash, `/v1`, or any endpoint path. The frontend API
+client appends endpoint paths like `/v1/assessments`.
+
+If requests show a URL shaped like `https://api.example.com/https://api.example.com//v1/assessments`,
+the frontend has either a stale deployment or an incorrectly composed API URL.
+Redeploy Vercel after changing `NEXT_PUBLIC_ASSESSMENT_API_URL`.
 
 ## API Docs
 
@@ -320,6 +325,8 @@ survey with the same experiment arm as the original assessment.
   field contract.
 - In production, make sure the Vercel origin is listed in
   `FINSIGHT_CORS_ORIGINS` on the backend.
+- `FINSIGHT_CORS_ORIGINS` should contain the frontend origin, such as
+  `https://your-vercel-app.vercel.app`, not the Heroku API origin by itself.
 - If the API returns `401`, check the Supabase session and `Authorization`
   header.
 - If the API returns a CORS browser error, check the backend CORS env var and

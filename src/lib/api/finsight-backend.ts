@@ -1,13 +1,20 @@
 import { createClient } from "@/lib/supabase/client";
 
 const DEFAULT_API_URL =
-  "https://finsight-assessment-api-1879fcf6be78.herokuapp.com/";
+  "https://finsight-assessment-api-1879fcf6be78.herokuapp.com";
 
-function getApiBaseUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_ASSESSMENT_API_URL?.trim().replace(/\/+$/, "") ||
-    DEFAULT_API_URL
-  );
+export function getAssessmentApiBaseUrl(): string {
+  const configuredUrl = process.env.NEXT_PUBLIC_ASSESSMENT_API_URL?.trim();
+  return (configuredUrl || DEFAULT_API_URL).replace(/\/+$/, "");
+}
+
+function buildApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${getAssessmentApiBaseUrl()}${normalizedPath}`;
 }
 
 async function buildHeaders(): Promise<HeadersInit> {
@@ -28,7 +35,7 @@ async function buildHeaders(): Promise<HeadersInit> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await fetch(buildApiUrl(path), {
     ...init,
     headers: {
       ...(await buildHeaders()),
@@ -187,13 +194,10 @@ export interface SurveyReceiptPayload {
 export async function createAssessment(
   payload: AssessmentRequestPayload,
 ): Promise<AssessmentPayload> {
-  const response = await request<AssessmentPayload>(
-    `${DEFAULT_API_URL}/v1/assessments`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
+  const response = await request<AssessmentPayload>("/v1/assessments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
   return normalizeAssessmentPayload(response);
 }
 
@@ -201,7 +205,7 @@ export async function getAssessment(
   assessmentId: string,
 ): Promise<AssessmentPayload> {
   const response = await request<AssessmentPayload>(
-    `${DEFAULT_API_URL}/v1/assessments/${assessmentId}`,
+    `/v1/assessments/${assessmentId}`,
   );
   return normalizeAssessmentPayload(response);
 }
@@ -211,7 +215,7 @@ export async function simulateAssessment(
   payload: SimulateAssessmentRequestPayload,
 ): Promise<SimulatedAssessmentPayload> {
   return request<SimulatedAssessmentPayload>(
-    `${DEFAULT_API_URL}/v1/assessments/${assessmentId}/simulations`,
+    `/v1/assessments/${assessmentId}/simulations`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -224,7 +228,7 @@ export async function submitSurveyResponse(
   payload: SurveyRequestPayload,
 ): Promise<SurveyReceiptPayload> {
   return request<SurveyReceiptPayload>(
-    `${DEFAULT_API_URL}/v1/assessments/${assessmentId}/survey-responses`,
+    `/v1/assessments/${assessmentId}/survey-responses`,
     {
       method: "POST",
       body: JSON.stringify(payload),
