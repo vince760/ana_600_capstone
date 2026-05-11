@@ -52,6 +52,14 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     title: 'Additional Context',
     section: 'Profile',
   },
+  {
+    id: 'review',
+    index: 7,
+    total: TOTAL_STEPS,
+    route: '/onboarding/review',
+    title: 'Review and Submit',
+    section: 'Review',
+  },
 ]
 
 export const ONBOARDING_SECTIONS: OnboardingSection[] = [
