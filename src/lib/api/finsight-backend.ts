@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 
-const DEFAULT_API_URL =
-  "https://finsight-assessment-api-1879fcf6be78.herokuapp.com";
+const DEFAULT_API_URL = "https://ana-600-capstone.onrender.com";
 
 export function getAssessmentApiBaseUrl(): string {
   const configuredUrl = process.env.NEXT_PUBLIC_ASSESSMENT_API_URL?.trim();
@@ -42,7 +41,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetch(`${getApiBaseUrl()}${normalizedPath}`, {
+    response = await fetch(`${getAssessmentApiBaseUrl()}${normalizedPath}`, {
       ...init,
       headers: {
         ...(await buildHeaders()),
