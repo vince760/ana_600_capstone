@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowRight, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import {
   getPrevStep,
   getStepByRoute,
 } from '@/lib/onboarding/steps'
+import { getOnboardingDraft, saveOnboardingDraft } from '@/lib/onboarding/session'
 
 const EMPLOYMENT_OPTIONS = [
   'Employed full-time',
@@ -100,6 +101,27 @@ export default function AdditionalContextPage() {
   const current = getStepByRoute('/onboarding/additional-context')
   const next = current ? getNextStep(current) : undefined
   const prev = current ? getPrevStep(current) : undefined
+
+  useEffect(() => {
+    const draft = getOnboardingDraft()
+    setEmployment(draft.employment_status)
+    setMarital(draft.marital_status)
+    setHousing(draft.housing_status)
+    setEducation(draft.education_level)
+    setNotes(draft.free_text_notes)
+  }, [])
+
+  const handleContinue = () => {
+    if (!next) return
+    saveOnboardingDraft({
+      employment_status: employment,
+      marital_status: marital,
+      housing_status: housing,
+      education_level: education,
+      free_text_notes: notes,
+    })
+    router.push(next.route)
+  }
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -194,7 +216,7 @@ export default function AdditionalContextPage() {
 
         <Button
           type="button"
-          onClick={() => next && router.push(next.route)}
+          onClick={handleContinue}
           disabled={!next}
           className="h-12 gap-2 rounded-full bg-navy px-6 text-sm font-semibold text-white hover:bg-navyMid disabled:cursor-not-allowed disabled:opacity-40"
         >

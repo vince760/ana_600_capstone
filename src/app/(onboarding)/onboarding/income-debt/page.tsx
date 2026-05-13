@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowRight, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import {
   getPrevStep,
   getStepByRoute,
 } from '@/lib/onboarding/steps'
+import { getOnboardingDraft, saveOnboardingDraft } from '@/lib/onboarding/session'
 
 interface FieldConfig {
   id: string
@@ -54,6 +55,39 @@ export default function IncomeDebtPage() {
   const prev = current ? getPrevStep(current) : undefined
 
   const isValid = FIELDS.every((f) => values[f.id] && Number(values[f.id]) >= 0)
+
+  useEffect(() => {
+    const draft = getOnboardingDraft()
+    setValues({
+      'annual-income':
+        draft.annual_household_income_usd === null
+          ? ''
+          : String(draft.annual_household_income_usd),
+      'total-debt':
+        draft.total_household_debt_usd === null
+          ? ''
+          : String(draft.total_household_debt_usd),
+      'monthly-debt':
+        draft.monthly_consumer_debt_payments_usd === null
+          ? ''
+          : String(draft.monthly_consumer_debt_payments_usd),
+      'cc-balance':
+        draft.credit_card_revolving_balance_usd === null
+          ? ''
+          : String(draft.credit_card_revolving_balance_usd),
+    })
+  }, [])
+
+  const handleContinue = () => {
+    if (!next || !isValid) return
+    saveOnboardingDraft({
+      annual_household_income_usd: Number(values['annual-income']),
+      total_household_debt_usd: Number(values['total-debt']),
+      monthly_consumer_debt_payments_usd: Number(values['monthly-debt']),
+      credit_card_revolving_balance_usd: Number(values['cc-balance']),
+    })
+    router.push(next.route)
+  }
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -131,7 +165,7 @@ export default function IncomeDebtPage() {
 
         <Button
           type="button"
-          onClick={() => next && router.push(next.route)}
+          onClick={handleContinue}
           disabled={!isValid || !next}
           className="h-12 gap-2 rounded-full bg-navy px-6 text-sm font-semibold text-white hover:bg-navyMid disabled:cursor-not-allowed disabled:opacity-40"
         >

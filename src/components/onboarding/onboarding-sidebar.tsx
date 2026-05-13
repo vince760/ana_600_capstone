@@ -1,6 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
+import Link from 'next/link'
 import {
   TrendingUp,
   ShieldCheck,
@@ -28,7 +29,19 @@ const SECTION_ICONS: Record<OnboardingSection, LucideIcon> = {
 export function OnboardingSidebar() {
   const pathname = usePathname()
   const currentStep = ONBOARDING_STEPS.find((s) => s.route === pathname)
-  const activeSection = currentStep?.section
+  const activeSection =
+    currentStep?.section ?? (pathname.startsWith('/assessment-results') ? 'Review' : undefined)
+  const defaultSectionRoute = ONBOARDING_STEPS[0]?.route ?? '/onboarding/research-consent'
+
+  const getSectionRoute = (section: OnboardingSection): string => {
+    if (section === 'Review' && pathname.startsWith('/assessment-results')) {
+      return '/assessment-results'
+    }
+    return (
+      ONBOARDING_STEPS.find((step) => step.section === section)?.route ??
+      defaultSectionRoute
+    )
+  }
 
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white p-6 lg:flex">
@@ -54,17 +67,18 @@ export function OnboardingSidebar() {
             const isActive = activeSection === section
             return (
               <li key={section}>
-                <div
+                <Link
+                  href={getSectionRoute(section)}
                   className={cn(
                     'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
                     isActive
                       ? 'border-l-2 border-navy bg-slate-50 font-semibold text-navy'
-                      : 'text-text-muted'
+                      : 'text-text-muted hover:bg-slate-50 hover:text-navy'
                   )}
                 >
                   <Icon className="h-4 w-4" />
                   <span>{section}</span>
-                </div>
+                </Link>
               </li>
             )
           })}

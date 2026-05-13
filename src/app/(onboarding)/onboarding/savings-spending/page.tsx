@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowRight, Info, ShoppingCart, UtensilsCrossed, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import {
   getPrevStep,
   getStepByRoute,
 } from '@/lib/onboarding/steps'
+import { getOnboardingDraft, saveOnboardingDraft } from '@/lib/onboarding/session'
 
 interface FieldConfig {
   id: string
@@ -48,6 +49,32 @@ export default function SavingsSpendingPage() {
   const prev = current ? getPrevStep(current) : undefined
 
   const isValid = FIELDS.every((f) => values[f.id] && Number(values[f.id]) >= 0)
+
+  useEffect(() => {
+    const draft = getOnboardingDraft()
+    setValues({
+      'liquid-assets':
+        draft.liquid_assets_usd === null ? '' : String(draft.liquid_assets_usd),
+      grocery:
+        draft.monthly_grocery_spend_usd === null
+          ? ''
+          : String(draft.monthly_grocery_spend_usd),
+      dining:
+        draft.monthly_dining_spend_usd === null
+          ? ''
+          : String(draft.monthly_dining_spend_usd),
+    })
+  }, [])
+
+  const handleContinue = () => {
+    if (!next || !isValid) return
+    saveOnboardingDraft({
+      liquid_assets_usd: Number(values['liquid-assets']),
+      monthly_grocery_spend_usd: Number(values.grocery),
+      monthly_dining_spend_usd: Number(values.dining),
+    })
+    router.push(next.route)
+  }
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -141,7 +168,7 @@ export default function SavingsSpendingPage() {
 
         <Button
           type="button"
-          onClick={() => next && router.push(next.route)}
+          onClick={handleContinue}
           disabled={!isValid || !next}
           className="h-12 gap-2 rounded-full bg-navy px-6 text-sm font-semibold text-white hover:bg-navyMid disabled:cursor-not-allowed disabled:opacity-40"
         >

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 
 const DEFAULT_API_URL =
-  "https://finsight-assessment-api-1879fcf6be78.herokuapp.com/";
+  "https://finsight-assessment-api-1879fcf6be78.herokuapp.com";
 
 function getApiBaseUrl(): string {
   return (
@@ -28,14 +28,30 @@ async function buildHeaders(): Promise<HeadersInit> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    ...init,
-    headers: {
-      ...(await buildHeaders()),
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const controller = new AbortController();
+  const timeoutMs = 12000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}${normalizedPath}`, {
+      ...init,
+      headers: {
+        ...(await buildHeaders()),
+        ...(init?.headers ?? {}),
+      },
+      signal: init?.signal ?? controller.signal,
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Request timed out. Please try again.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     let detail = `Request failed with status ${response.status}`;
@@ -86,6 +102,13 @@ export interface AssessmentRequestPayload {
     research_consent_accepted: boolean;
     research_consent_version: string;
     flow_version: string;
+  };
+  context?: {
+    employment_status?: string;
+    housing_status?: string;
+    marital_status?: string;
+    education_level?: string;
+    free_text_notes?: string;
   };
 }
 
@@ -187,13 +210,10 @@ export interface SurveyReceiptPayload {
 export async function createAssessment(
   payload: AssessmentRequestPayload,
 ): Promise<AssessmentPayload> {
-  const response = await request<AssessmentPayload>(
-    `${DEFAULT_API_URL}/v1/assessments`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
+  const response = await request<AssessmentPayload>("/v1/assessments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
   return normalizeAssessmentPayload(response);
 }
 
@@ -201,7 +221,7 @@ export async function getAssessment(
   assessmentId: string,
 ): Promise<AssessmentPayload> {
   const response = await request<AssessmentPayload>(
-    `${DEFAULT_API_URL}/v1/assessments/${assessmentId}`,
+    `/v1/assessments/${assessmentId}`,
   );
   return normalizeAssessmentPayload(response);
 }
@@ -211,7 +231,7 @@ export async function simulateAssessment(
   payload: SimulateAssessmentRequestPayload,
 ): Promise<SimulatedAssessmentPayload> {
   return request<SimulatedAssessmentPayload>(
-    `${DEFAULT_API_URL}/v1/assessments/${assessmentId}/simulations`,
+    `/v1/assessments/${assessmentId}/simulations`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -224,7 +244,7 @@ export async function submitSurveyResponse(
   payload: SurveyRequestPayload,
 ): Promise<SurveyReceiptPayload> {
   return request<SurveyReceiptPayload>(
-    `${DEFAULT_API_URL}/v1/assessments/${assessmentId}/survey-responses`,
+    `/v1/assessments/${assessmentId}/survey-responses`,
     {
       method: "POST",
       body: JSON.stringify(payload),

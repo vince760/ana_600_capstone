@@ -1,19 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowRight,
   BarChart3,
-  Brain,
   CheckCircle2,
   ChevronDown,
   Gauge,
   PieChart as PieChartIcon,
-  ShieldCheck,
   Sparkles,
-  TrendingUp,
   TrendingDown,
-  Wallet,
+  TrendingUp,
 } from 'lucide-react'
 import {
   Bar,
@@ -35,59 +32,18 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-
-const MOCK_PROBABILITY = 0.16
-const QUOTIENT_SCORE = Math.round((1 - MOCK_PROBABILITY) * 10 * 10) / 10
-const RISK_BAND_LABEL = 'Moderate-Low Risk Band'
-
-type ExplanationStatus = 'not_generated' | 'complete'
-const MOCK_EXPLANATION_STATUS: ExplanationStatus = 'not_generated'
-
-const MOCK_ANNUAL_INCOME = 185_000
-const MOCK_MONTHLY_DEBT_PAYMENTS = 4_200
-const DTI_RATIO = Math.round(
-  ((MOCK_MONTHLY_DEBT_PAYMENTS * 12) / MOCK_ANNUAL_INCOME) * 100
-)
-const DTI_HEALTHY_MAX = 36
-
-const DRIVER_RESULTS = [
-  { label: 'Stable Income', value: -0.18 },
-  { label: 'Low Debt Burden', value: -0.14 },
-  { label: 'Grocery Inflation', value: 0.11 },
-  { label: 'Retirement Reserves', value: -0.09 },
-  { label: 'Low Emergency Buffer', value: 0.07 },
-]
-
-const DRIVERS = [
-  {
-    icon: TrendingUp,
-    title: 'Stable Income',
-    description:
-      'Diversified revenue streams contribute to consistent cash flow stability across cycles.',
-    accent: 'mint',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Low Debt Burden',
-    description:
-      'Liability management is optimized, keeping debt service ratios well below industry danger zones.',
-    accent: 'mint',
-  },
-  {
-    icon: TrendingDown,
-    title: 'Grocery Inflation',
-    description:
-      'High sensitivity to non-discretionary price hikes is eroding month-over-month surplus.',
-    accent: 'gold',
-  },
-  {
-    icon: Wallet,
-    title: 'Low Emergency Buffer',
-    description:
-      'Liquid reserves currently cover less than 3 months of essential operating costs.',
-    accent: 'gold',
-  },
-] as const
+import {
+  getAssessment,
+  submitSurveyResponse,
+  type AssessmentPayload,
+} from '@/lib/api/finsight-backend'
+import {
+  cacheAssessmentResult,
+  getAssessmentSession,
+  getCachedAssessmentResult,
+  getSurveySubmissionState,
+  markSurveySubmitted,
+} from '@/lib/onboarding/session'
 
 const LIKERT_QUESTIONS = [
   { id: 'understood', label: 'I understood what contributed most to my result.' },
@@ -95,13 +51,60 @@ const LIKERT_QUESTIONS = [
   { id: 'trust', label: 'This result felt trustworthy.' },
 ] as const
 
-function currency(value: number) {
-  return `$${value.toLocaleString('en-US')}`
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`
 }
 
-function toNumber(value: unknown): number {
-  return typeof value === 'number' ? value : Number(value ?? 0)
+function getRiskBand(probability: number): {
+  label: string
+  tone: 'low' | 'moderate' | 'high'
+  plainSummary: string
+} {
+  if (probability < 0.35) {
+    return {
+      label: 'Lower Risk',
+      tone: 'low',
+      plainSummary:
+        'Your answers look closer to households that usually keep spending within income.',
+    }
+  }
+  if (probability < 0.65) {
+    return {
+      label: 'Moderate Risk',
+      tone: 'moderate',
+      plainSummary:
+        'Your answers show some warning signs that may make spending exceed income in tougher months.',
+    }
+  }
+  return {
+    label: 'Higher Risk',
+    tone: 'high',
+    plainSummary:
+      'Your answers look closer to households that are more likely to spend above income.',
+  }
 }
+
+function formatChanceOutOfTen(probability: number): string {
+  const outOfTen = Math.round(probability * 10)
+  return `${outOfTen} out of 10`
+}
+
+function formatArmLabel(arm: AssessmentPayload['experiment']['arm']) {
+  return arm.replaceAll('_', ' ')
+}
+
+function getExplanationBadgeLabel(assessment: AssessmentPayload): string {
+  if (assessment.explanation.status === 'failed') {
+    return 'LLM fallback'
+  }
+  if (assessment.explanation.status === 'not_generated') {
+    return 'No explanation'
+  }
+  return formatArmLabel(assessment.experiment.arm)
+}
+
+const DRIVER_POSITIVE = '#E05252'
+const DRIVER_NEGATIVE = '#02C39A'
 
 interface ChartCardProps {
   title: string
@@ -136,19 +139,18 @@ function ChartCard({
   )
 }
 
-const DRIVER_POSITIVE = '#E05252'
-const DRIVER_NEGATIVE = '#02C39A'
+interface DriverImpactDatum {
+  label: string
+  shap: number
+}
 
-function DriversChart() {
-  const sorted = [...DRIVER_RESULTS].sort(
-    (a, b) => Math.abs(b.value) - Math.abs(a.value)
-  )
+function DriverImpactChart({ data }: { data: DriverImpactDatum[] }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart
-        data={sorted}
+        data={data}
         layout="vertical"
-        margin={{ top: 8, right: 24, left: 16, bottom: 8 }}
+        margin={{ top: 8, right: 20, left: 8, bottom: 8 }}
       >
         <CartesianGrid horizontal={false} stroke="#F1F5F9" />
         <XAxis
@@ -156,8 +158,7 @@ function DriversChart() {
           axisLine={false}
           tickLine={false}
           tick={{ fontSize: 11, fill: '#64748B' }}
-          domain={[-0.25, 0.25]}
-          tickFormatter={(v) => v.toFixed(2)}
+          tickFormatter={(v) => Number(v).toFixed(2)}
         />
         <YAxis
           type="category"
@@ -170,10 +171,10 @@ function DriversChart() {
         <ReferenceLine x={0} stroke="#94A3B8" strokeWidth={1} />
         <Tooltip
           formatter={(value) => {
-            const n = toNumber(value)
+            const n = Number(value)
             const sign = n > 0 ? '+' : ''
-            const direction = n > 0 ? 'increases risk' : 'reduces risk'
-            return [`${sign}${n.toFixed(2)} (${direction})`, 'Impact']
+            const direction = n > 0 ? 'raised your estimate' : 'lowered your estimate'
+            return [`${sign}${n.toFixed(3)} (${direction})`, 'Impact score']
           }}
           contentStyle={{
             borderRadius: 8,
@@ -181,11 +182,11 @@ function DriversChart() {
             fontSize: 12,
           }}
         />
-        <Bar dataKey="value" radius={[3, 3, 3, 3]}>
-          {sorted.map((d) => (
+        <Bar dataKey="shap" radius={[4, 4, 4, 4]}>
+          {data.map((d) => (
             <Cell
               key={d.label}
-              fill={d.value > 0 ? DRIVER_POSITIVE : DRIVER_NEGATIVE}
+              fill={d.shap > 0 ? DRIVER_POSITIVE : DRIVER_NEGATIVE}
             />
           ))}
         </Bar>
@@ -194,23 +195,19 @@ function DriversChart() {
   )
 }
 
-function NetEffectPie() {
-  const reducing = DRIVER_RESULTS.filter((d) => d.value < 0).reduce(
-    (sum, d) => sum + Math.abs(d.value),
-    0
-  )
-  const increasing = DRIVER_RESULTS.filter((d) => d.value > 0).reduce(
-    (sum, d) => sum + d.value,
-    0
-  )
-  const total = reducing + increasing
-  const reducingPct = total > 0 ? Math.round((reducing / total) * 100) : 0
-  const dominant = reducing >= increasing ? 'reducing' : 'increasing'
-
+function DriverNetEffectPie({
+  increase,
+  decrease,
+}: {
+  increase: number
+  decrease: number
+}) {
+  const total = increase + decrease
   const slices = [
-    { label: 'Reducing risk', contribution: reducing, fill: DRIVER_NEGATIVE },
-    { label: 'Increasing risk', contribution: increasing, fill: DRIVER_POSITIVE },
+    { label: 'Reducing risk', contribution: decrease, fill: DRIVER_NEGATIVE },
+    { label: 'Increasing risk', contribution: increase, fill: DRIVER_POSITIVE },
   ]
+  const reducingPct = total > 0 ? Math.round((decrease / total) * 100) : 0
 
   return (
     <div className="relative h-full">
@@ -221,11 +218,9 @@ function NetEffectPie() {
             dataKey="contribution"
             nameKey="label"
             innerRadius={50}
-            outerRadius={80}
+            outerRadius={78}
             paddingAngle={2}
             stroke="none"
-            startAngle={90}
-            endAngle={-270}
           >
             {slices.map((entry) => (
               <Cell key={entry.label} fill={entry.fill} />
@@ -233,7 +228,7 @@ function NetEffectPie() {
           </Pie>
           <Tooltip
             formatter={(value, name) => {
-              const n = toNumber(value)
+              const n = Number(value)
               const pct = total > 0 ? Math.round((n / total) * 100) : 0
               return [`${pct}%`, String(name)]
             }}
@@ -253,95 +248,42 @@ function NetEffectPie() {
         </PieChart>
       </ResponsiveContainer>
       <div className="pointer-events-none absolute inset-x-0 top-[34%] flex flex-col items-center">
-        <p
-          className={
-            dominant === 'reducing'
-              ? 'text-2xl font-bold text-mint'
-              : 'text-2xl font-bold text-[#E05252]'
-          }
-        >
-          {dominant === 'reducing' ? reducingPct : 100 - reducingPct}%
-        </p>
+        <p className="text-2xl font-bold text-navy">{reducingPct}%</p>
         <p className="text-[10px] font-medium uppercase tracking-widest text-text-muted">
-          {dominant === 'reducing' ? 'reducing' : 'increasing'}
+          reducing
         </p>
       </div>
     </div>
   )
 }
 
-function DebtRatioGauge() {
-  const isHealthy = DTI_RATIO <= DTI_HEALTHY_MAX
+function ProbabilityGauge({ probability }: { probability: number }) {
+  const pct = Math.max(0, Math.min(100, Math.round(probability * 100)))
   return (
     <div className="flex h-full flex-col justify-center">
       <div className="flex items-end justify-between">
-        <p className="text-5xl font-bold text-navy">{DTI_RATIO}%</p>
-        <div
-          className={
-            isHealthy
-              ? 'flex items-center gap-1.5 rounded-full bg-mint/10 px-3 py-1'
-              : 'flex items-center gap-1.5 rounded-full bg-[#E05252]/10 px-3 py-1'
-          }
-        >
-          <CheckCircle2
-            className={isHealthy ? 'h-3.5 w-3.5 text-mint' : 'h-3.5 w-3.5 text-[#E05252]'}
-          />
-          <span
-            className={
-              isHealthy
-                ? 'text-[11px] font-semibold text-mint'
-                : 'text-[11px] font-semibold text-[#E05252]'
-            }
-          >
-            {isHealthy ? 'Healthy' : 'Elevated'}
-          </span>
-        </div>
+        <p className="text-5xl font-bold text-navy">{pct}%</p>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-navy">
+          Model Output
+        </span>
       </div>
-
       <div className="mt-6">
         <div className="relative h-2.5 overflow-hidden rounded-full bg-slate-100">
           <div className="absolute inset-y-0 left-0 w-full rounded-full bg-gradient-to-r from-mint via-gold to-[#E05252]" />
           <div
             className="absolute -top-1 h-4 w-1 rounded-full bg-navy shadow"
-            style={{ left: `calc(${DTI_RATIO}% - 2px)` }}
+            style={{ left: `calc(${pct}% - 2px)` }}
           />
         </div>
         <div className="mt-2 flex justify-between text-[10px] font-medium text-text-muted">
-          <span>0%</span>
-          <span>20%</span>
-          <span>36%</span>
-          <span>50%+</span>
+          <span>Low</span>
+          <span>Moderate</span>
+          <span>High</span>
         </div>
       </div>
-
       <p className="mt-6 text-xs leading-relaxed text-text-secondary">
-        Debt-to-income sits below the{' '}
-        <span className="font-semibold text-navy">{DTI_HEALTHY_MAX}%</span>{' '}
-        institutional threshold, indicating sustainable leverage relative to
-        gross income.
-      </p>
-    </div>
-  )
-}
-
-interface DriverCardProps {
-  driver: (typeof DRIVERS)[number]
-}
-
-function DriverCard({ driver }: DriverCardProps) {
-  const Icon = driver.icon
-  const accent = driver.accent === 'mint' ? 'text-mint' : 'text-gold'
-  const accentBg = driver.accent === 'mint' ? 'bg-mint/10' : 'bg-gold/10'
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div
-        className={`flex h-8 w-8 items-center justify-center rounded-lg ${accentBg}`}
-      >
-        <Icon className={`h-4 w-4 ${accent}`} />
-      </div>
-      <h3 className="mt-3 text-sm font-bold text-navy">{driver.title}</h3>
-      <p className="mt-2 text-xs leading-relaxed text-text-secondary">
-        {driver.description}
+        This estimate is based on patterns in past survey data and your
+        submitted numbers. It is not a diagnosis or guarantee.
       </p>
     </div>
   )
@@ -393,7 +335,9 @@ function LikertScale({ id, question, value, onChange }: LikertScaleProps) {
 }
 
 export default function AssessmentResultsPage() {
-  const scoreOutOf10 = QUOTIENT_SCORE.toFixed(1)
+  const [assessment, setAssessment] = useState<AssessmentPayload | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   const [surveyOpen, setSurveyOpen] = useState(false)
   const [likertAnswers, setLikertAnswers] = useState<Record<string, number | null>>({
@@ -402,180 +346,307 @@ export default function AssessmentResultsPage() {
     trust: null,
   })
   const [feedback, setFeedback] = useState('')
+  const [surveySubmitting, setSurveySubmitting] = useState(false)
   const [surveySubmitted, setSurveySubmitted] = useState(false)
+
+  const [resultsViewedAt, setResultsViewedAt] = useState<Date | null>(null)
+  const [surveyStartedAt, setSurveyStartedAt] = useState<Date | null>(null)
+
+  const inputSnapshot = getAssessmentSession()?.input
+  const dtiRatio = useMemo(() => {
+    if (!inputSnapshot || inputSnapshot.annual_household_income_usd <= 0) {
+      return null
+    }
+    return Math.round(
+      ((inputSnapshot.monthly_consumer_debt_payments_usd * 12) /
+        inputSnapshot.annual_household_income_usd) *
+        100
+    )
+  }, [inputSnapshot])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const assessmentIdFromQuery = params.get('assessmentId')
+    const fallbackSession = getAssessmentSession()
+    const assessmentId = assessmentIdFromQuery ?? fallbackSession?.assessment_id ?? null
+
+    if (!assessmentId) {
+      setErrorMessage('Missing assessment id. Please resubmit onboarding.')
+      setLoading(false)
+      return
+    }
+
+    const cachedAssessment = getCachedAssessmentResult(assessmentId)
+    if (cachedAssessment) {
+      setAssessment(cachedAssessment)
+      setLoading(false)
+    }
+
+    const surveyState = getSurveySubmissionState(assessmentId)
+    if (surveyState?.submitted) {
+      setSurveySubmitted(true)
+    }
+
+    const loadAssessment = async () => {
+      if (!cachedAssessment) {
+        setLoading(true)
+      }
+      setErrorMessage(null)
+      try {
+        const fetched = await getAssessment(assessmentId)
+        cacheAssessmentResult(fetched)
+        setAssessment(fetched)
+        setResultsViewedAt(new Date())
+      } catch (error) {
+        if (cachedAssessment) {
+          setErrorMessage(
+            'Live refresh failed. Showing your last saved result from this device.'
+          )
+        } else {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : 'Unable to fetch assessment results right now.'
+          )
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadAssessment()
+  }, [])
 
   const answeredCount = Object.values(likertAnswers).filter((v) => v !== null).length
   const surveyProgress = Math.round((answeredCount / LIKERT_QUESTIONS.length) * 100)
-  const canSubmitSurvey = LIKERT_QUESTIONS.every((q) => likertAnswers[q.id] !== null)
+  const canSubmitSurvey =
+    assessment !== null &&
+    LIKERT_QUESTIONS.every((q) => likertAnswers[q.id] !== null) &&
+    !surveySubmitting
 
-  const handleSurveySubmit = () => {
-    setSurveySubmitted(true)
+  const handleSurveyOpen = (open: boolean) => {
+    setSurveyOpen(open)
+    if (open && surveyStartedAt === null) {
+      setSurveyStartedAt(new Date())
+    }
   }
+
+  const handleSurveySubmit = async () => {
+    if (!assessment) return
+
+    setSurveySubmitting(true)
+    setErrorMessage(null)
+    try {
+      const now = new Date()
+      const timeOnResultsMs =
+        resultsViewedAt === null ? undefined : now.getTime() - resultsViewedAt.getTime()
+      const timeOnSurveyMs =
+        surveyStartedAt === null ? undefined : now.getTime() - surveyStartedAt.getTime()
+
+      await submitSurveyResponse(assessment.assessment_id, {
+        survey_version: 'survey_v1',
+        answers: {
+          understood_result: likertAnswers.understood as number,
+          explanation_clarity: likertAnswers.clarity as number,
+          trusted_result: likertAnswers.trust as number,
+          most_confusing_part: feedback.trim() || 'none',
+        },
+        context: {
+          time_on_results_ms: timeOnResultsMs,
+          time_on_survey_ms: timeOnSurveyMs,
+        },
+      })
+      markSurveySubmitted(assessment.assessment_id)
+      setSurveySubmitted(true)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to submit survey right now.'
+      )
+    } finally {
+      setSurveySubmitting(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-6xl px-6 py-12">
+        <p className="text-sm text-text-secondary">Loading assessment results...</p>
+      </div>
+    )
+  }
+
+  if (!assessment) {
+    return (
+      <div className="mx-auto max-w-6xl px-6 py-12">
+        <p className="text-sm text-red-600">{errorMessage ?? 'No assessment found.'}</p>
+      </div>
+    )
+  }
+
+  const topDrivers = assessment.drivers.slice(0, 5)
+  const riskBand = getRiskBand(assessment.prediction.probability)
+  const chartDrivers = [...assessment.drivers]
+    .sort((a, b) => Math.abs(b.shap_value) - Math.abs(a.shap_value))
+    .slice(0, 5)
+    .map((driver) => ({
+      label: driver.display_name,
+      shap: driver.shap_value,
+    }))
+
+  const netIncrease = assessment.drivers
+    .filter((d) => d.shap_value > 0)
+    .reduce((sum, d) => sum + d.shap_value, 0)
+  const netDecrease = assessment.drivers
+    .filter((d) => d.shap_value < 0)
+    .reduce((sum, d) => sum + Math.abs(d.shap_value), 0)
 
   return (
     <div className="min-h-screen bg-white">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-8 py-4">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-teal" />
-            <span className="text-sm font-bold text-navy">FinSight AI</span>
-          </div>
-          <span className="text-xs font-medium text-text-muted">
-            Research Division
-          </span>
-        </div>
-      </header>
-
       <main className="mx-auto max-w-6xl px-6 py-10 lg:px-8 lg:py-14">
         <div>
           <h1 className="text-4xl font-bold tracking-tight text-navy">
-            Your Intelligence Profile
+            Your Financial Risk Snapshot
           </h1>
           <p className="mt-2 text-sm text-text-secondary">
-            Based on your recent assessment data.
+            Based on the information you entered.
+          </p>
+          <p className="mt-1 text-xs text-text-muted">
+            Assessment ID: {assessment.assessment_id}
           </p>
         </div>
 
-        <div
-          className={
-            MOCK_EXPLANATION_STATUS === 'complete'
-              ? 'mt-10 grid gap-6 lg:grid-cols-[2fr_1fr]'
-              : 'mt-10'
-          }
-        >
-          <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted">
-              Overall Financial Quotient
-            </p>
+        {errorMessage && (
+          <p className="mt-4 text-sm font-medium text-red-600">{errorMessage}</p>
+        )}
 
-            <div className="mt-3 flex items-end gap-2">
-              <span className="text-6xl font-bold text-navy">
-                {scoreOutOf10}
-              </span>
-              <span className="mb-2 text-lg font-medium text-text-muted">
-                / 10
-              </span>
-            </div>
-
-            <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-mint/10 px-3 py-1">
-              <div className="h-2 w-2 rounded-full bg-mint" />
-              <span className="text-xs font-semibold text-mint">
-                {RISK_BAND_LABEL}
-              </span>
-            </div>
-
-            <div className="mt-6">
-              <div className="relative h-3 overflow-hidden rounded-full bg-slate-100">
-                <div className="absolute inset-y-0 left-0 w-full rounded-full bg-gradient-to-r from-mint via-gold to-[#E05252]" />
-                <div
-                  className="absolute -top-1 h-5 w-1 rounded-full bg-navy shadow"
-                  style={{ left: `calc(${QUOTIENT_SCORE * 10}% - 2px)` }}
-                />
-              </div>
-              <div className="mt-2 flex justify-between text-[10px] font-medium text-text-muted">
-                <span>Conservative</span>
-                <span>Aggressive</span>
-              </div>
-            </div>
-
-            <p className="mt-8 max-w-xl text-base leading-relaxed text-text-primary">
-              Your profile indicates a strong foundation with potential for
-              growth in liquidity management.
-            </p>
+        <div className="mt-8 rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted">
+            Chance Of Spending Above Income
+          </p>
+          <p className="mt-2 text-6xl font-bold text-navy">
+            {formatPercent(assessment.prediction.probability)}
+          </p>
+          <p className="mt-2 text-sm font-semibold text-navy">
+            About {formatChanceOutOfTen(assessment.prediction.probability)} chance
+            based on similar profiles.
+          </p>
+          <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1">
+            <Sparkles className="h-3.5 w-3.5 text-gold" />
+            <span className="text-xs font-semibold capitalize text-navy">
+              {getExplanationBadgeLabel(assessment)}
+            </span>
           </div>
-
-          {MOCK_EXPLANATION_STATUS === 'complete' && (
-            <aside className="rounded-xl border-l-4 border-teal bg-white p-6 shadow-sm">
-              <div className="flex items-center gap-2 text-teal">
-                <Brain className="h-4 w-4" />
-                <p className="text-[11px] font-bold uppercase tracking-widest">
-                  Detailed Analysis
-                </p>
-              </div>
-              <p className="mt-3 text-xs leading-relaxed text-text-secondary">
-                <span className="font-semibold text-navy">AI Synthesis:</span>{' '}
-                Our models detected high efficiency in recurring expense
-                management, though inflation sensitivity remains a key variable.
-              </p>
-              <ul className="mt-4 space-y-3 text-xs text-text-secondary">
-                <li className="flex gap-2">
-                  <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-teal" />
-                  <span>
-                    Capital allocation is prioritized toward low-yield security.
-                  </span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-teal" />
-                  <span>
-                    Debt-to-income ratio remains in the top 15th percentile.
-                  </span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-teal" />
-                  <span>
-                    Market volatility buffer requires a 12% upward adjustment.
-                  </span>
-                </li>
-              </ul>
-            </aside>
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1">
+            <span
+              className={
+                riskBand.tone === 'low'
+                  ? 'h-2 w-2 rounded-full bg-mint'
+                  : riskBand.tone === 'moderate'
+                    ? 'h-2 w-2 rounded-full bg-gold'
+                    : 'h-2 w-2 rounded-full bg-[#E05252]'
+              }
+            />
+            <span className="text-xs font-semibold text-navy">{riskBand.label}</span>
+          </div>
+          <p className="mt-3 max-w-3xl text-sm text-text-secondary">
+            {riskBand.plainSummary}
+          </p>
+          {dtiRatio !== null && (
+            <p className="mt-4 text-xs text-text-secondary">
+              Debt-to-income ratio from your submission: <span className="font-semibold text-navy">{dtiRatio}%</span>
+            </p>
           )}
         </div>
 
         <section className="mt-10">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-gold" />
-            <h2 className="text-sm font-bold uppercase tracking-widest text-text-secondary">
-              Financial Snapshot
-            </h2>
-          </div>
-          <p className="mt-1 text-xs text-text-muted">
-            Visual breakdown of the inputs powering your intelligence profile.
-          </p>
-
-          <div className="mt-5 grid gap-6 lg:grid-cols-4">
+          <div className="grid gap-6 lg:grid-cols-4">
             <ChartCard
-              title="Risk Drivers"
-              subtitle="Features pushing your score up (red) or down (green)"
+              title="What Raised Or Lowered Your Estimate"
+              subtitle="Red bars pushed your estimate higher. Green bars pushed it lower."
               icon={BarChart3}
               className="lg:col-span-2"
               heightClass="h-72"
             >
-              <DriversChart />
+              <DriverImpactChart data={chartDrivers} />
             </ChartCard>
 
             <ChartCard
-              title="Net Driver Effect"
-              subtitle="Combined effect of helpful vs concerning factors"
+              title="Overall Push"
+              subtitle="How much your factors leaned higher vs lower overall."
               icon={PieChartIcon}
               heightClass="h-72"
             >
-              <NetEffectPie />
+              <DriverNetEffectPie
+                increase={netIncrease}
+                decrease={netDecrease}
+              />
             </ChartCard>
 
             <ChartCard
-              title="Debt-to-Income Ratio"
-              subtitle="Monthly debt service against gross income"
+              title="Risk Meter"
+              subtitle="Where your estimate falls on a low-to-high range."
               icon={Gauge}
               heightClass="h-72"
             >
-              <DebtRatioGauge />
+              <ProbabilityGauge probability={assessment.prediction.probability} />
             </ChartCard>
-          </div>
-        </section>
-
-        <section className="mt-12">
-          <h2 className="text-lg font-bold text-navy">
-            What&apos;s driving this result
-          </h2>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {DRIVERS.map((driver) => (
-              <DriverCard key={driver.title} driver={driver} />
-            ))}
           </div>
         </section>
 
         <section className="mt-10">
-          <Collapsible open={surveyOpen} onOpenChange={setSurveyOpen}>
+          <h2 className="text-lg font-bold text-navy">Main Reasons</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {topDrivers.map((driver) => {
+              const increasesRisk = driver.effect === 'increases_probability'
+              return (
+                <div
+                  key={driver.feature_key}
+                  className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-navy">{driver.display_name}</p>
+                    {increasesRisk ? (
+                      <TrendingUp className="h-4 w-4 text-red-500" />
+                    ) : (
+                      <TrendingDown className="h-4 w-4 text-mint" />
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs text-text-secondary">{driver.plain_description}</p>
+                  <p className="mt-3 text-[11px] font-bold uppercase tracking-widest text-text-muted">
+                    {increasesRisk ? 'Raised estimate' : 'Lowered estimate'} (impact score {Math.abs(
+                      driver.shap_value
+                    ).toFixed(3)})
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        {assessment.explanation.status !== 'not_generated' && (
+          <section className="mt-10">
+            <h2 className="text-lg font-bold text-navy">Plain-Language Breakdown</h2>
+            <p className="mt-2 text-sm text-text-secondary">{assessment.explanation.message}</p>
+            {!!assessment.explanation.factor_explanations.length && (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {assessment.explanation.factor_explanations.map((factor) => (
+                  <div
+                    key={factor.feature_key}
+                    className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+                  >
+                    <p className="text-sm font-bold text-navy">{factor.title}</p>
+                    <p className="mt-2 text-xs text-text-secondary">{factor.summary}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        <section className="mt-10">
+          <Collapsible open={surveyOpen} onOpenChange={handleSurveyOpen}>
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <CollapsibleTrigger asChild>
                 <button
@@ -620,15 +691,6 @@ export default function AssessmentResultsPage() {
                       className="h-full rounded-full bg-navy transition-all"
                       style={{ width: `${surveyProgress}%` }}
                     />
-                  </div>
-
-                  <div className="mt-6">
-                    <h3 className="text-xl font-bold tracking-tight text-navy">
-                      A few quick questions
-                    </h3>
-                    <p className="mt-1 text-xs text-text-secondary">
-                      Help us improve how we communicate financial insights.
-                    </p>
                   </div>
 
                   <div className="mt-6 space-y-4">
@@ -679,7 +741,11 @@ export default function AssessmentResultsPage() {
                       disabled={!canSubmitSurvey}
                       className="h-11 gap-2 rounded-full bg-navy px-6 text-sm font-semibold text-white hover:bg-navyMid disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {surveySubmitted ? 'Update Response' : 'Submit Survey'}
+                      {surveySubmitting
+                        ? 'Submitting...'
+                        : surveySubmitted
+                          ? 'Update Response'
+                          : 'Submit Survey'}
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   </div>
@@ -688,11 +754,6 @@ export default function AssessmentResultsPage() {
             </div>
           </Collapsible>
         </section>
-
-        <p className="mt-10 text-center text-xs italic text-text-muted">
-          This result is intended for research and educational use based on
-          provided data.
-        </p>
       </main>
     </div>
   )

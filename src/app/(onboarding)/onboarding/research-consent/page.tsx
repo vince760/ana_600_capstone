@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowRight, Sparkles, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getNextStep, getStepByRoute } from '@/lib/onboarding/steps'
+import { getOnboardingDraft, saveOnboardingDraft } from '@/lib/onboarding/session'
 
 const RESEARCH_GOALS = [
   'Clearer cash-flow explanations',
@@ -17,8 +18,14 @@ export default function ResearchConsentPage() {
   const [agreed, setAgreed] = useState(false)
   const router = useRouter()
 
+  useEffect(() => {
+    const draft = getOnboardingDraft()
+    setAgreed(draft.research_consent_accepted)
+  }, [])
+
   const handleAccept = () => {
     if (!agreed) return
+    saveOnboardingDraft({ research_consent_accepted: true })
     const current = getStepByRoute('/onboarding/research-consent')
     const next = current ? getNextStep(current) : undefined
     if (next) router.push(next.route)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowRight, Sparkles, Home, Baby } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import {
   getPrevStep,
   getStepByRoute,
 } from '@/lib/onboarding/steps'
+import { getOnboardingDraft, saveOnboardingDraft } from '@/lib/onboarding/session'
 
 export default function HouseholdBasicsPage() {
   const [primaryAge, setPrimaryAge] = useState('')
@@ -19,6 +20,29 @@ export default function HouseholdBasicsPage() {
   const current = getStepByRoute('/onboarding/household-basics')
   const next = current ? getNextStep(current) : undefined
   const prev = current ? getPrevStep(current) : undefined
+
+  useEffect(() => {
+    const draft = getOnboardingDraft()
+    setPrimaryAge(
+      draft.primary_user_age_years === null
+        ? ''
+        : String(draft.primary_user_age_years)
+    )
+    setChildrenCount(
+      draft.num_children_under_18 === null
+        ? ''
+        : String(draft.num_children_under_18)
+    )
+  }, [])
+
+  const handleContinue = () => {
+    if (!next || !isValid) return
+    saveOnboardingDraft({
+      primary_user_age_years: Number(primaryAge),
+      num_children_under_18: Number(childrenCount),
+    })
+    router.push(next.route)
+  }
 
   const isValid =
     primaryAge !== '' &&
@@ -113,7 +137,7 @@ export default function HouseholdBasicsPage() {
           )}
           <Button
             type="button"
-            onClick={() => next && router.push(next.route)}
+            onClick={handleContinue}
             disabled={!isValid || !next}
             className="h-12 gap-2 rounded-full bg-navy px-6 text-sm font-semibold text-white hover:bg-navyMid disabled:cursor-not-allowed disabled:opacity-40"
           >
