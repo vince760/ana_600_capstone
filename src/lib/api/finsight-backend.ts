@@ -3,11 +3,18 @@ import { createClient } from "@/lib/supabase/client";
 const DEFAULT_API_URL =
   "https://finsight-assessment-api-1879fcf6be78.herokuapp.com";
 
-function getApiBaseUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_ASSESSMENT_API_URL?.trim().replace(/\/+$/, "") ||
-    DEFAULT_API_URL
-  );
+export function getAssessmentApiBaseUrl(): string {
+  const configuredUrl = process.env.NEXT_PUBLIC_ASSESSMENT_API_URL?.trim();
+  return (configuredUrl || DEFAULT_API_URL).replace(/\/+$/, "");
+}
+
+function buildApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${getAssessmentApiBaseUrl()}${normalizedPath}`;
 }
 
 async function buildHeaders(): Promise<HeadersInit> {
