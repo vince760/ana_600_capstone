@@ -46,10 +46,67 @@ import {
 } from '@/lib/onboarding/session'
 
 const LIKERT_QUESTIONS = [
-  { id: 'understood', label: 'I understood what contributed most to my result.' },
-  { id: 'clarity', label: 'The explanation was clear and easy to follow.' },
-  { id: 'trust', label: 'This result felt trustworthy.' },
+  {
+    id: 'understand_percentage_meaning',
+    label: 'I understand what the percentage result means.',
+  },
+  {
+    id: 'understand_why_result',
+    label: 'I understand why the system gave me this result.',
+  },
+  {
+    id: 'explain_main_factors',
+    label: 'I could explain the main factors behind my result to someone else.',
+  },
+  {
+    id: 'explanation_clear_readable',
+    label: 'The explanation was clear and easy to read.',
+  },
+  {
+    id: 'explanation_detail_balance',
+    label: 'The explanation gave enough detail without being overwhelming.',
+  },
+  {
+    id: 'result_reasonable',
+    label: 'The result seems reasonable based on the information I entered.',
+  },
+  { id: 'trust_result', label: 'I trust this result.' },
+  {
+    id: 'use_for_financial_habits',
+    label: 'I would use this result to think about my financial habits.',
+  },
+  {
+    id: 'understand_model_not_advice',
+    label: 'I understand that this is a model estimate, not financial advice.',
+  },
+  {
+    id: 'understand_scf_patterns',
+    label:
+      'I understand that the result is based on patterns in Survey of Consumer Finances households.',
+  },
 ] as const
+
+type LikertQuestionId = (typeof LIKERT_QUESTIONS)[number]['id']
+
+type ComprehensionQuestionId =
+  | 'most_increased_factor'
+  | 'most_lowered_factor'
+  | 'probability_represents'
+
+type OpenEndedQuestionId = 'most_helpful_part' | 'confusing_or_less_trust'
+
+const PROBABILITY_REPRESENTS_OPTIONS = [
+  'The chance that households with similar patterns spend above income.',
+  'The chance that I will be denied a loan in the next month.',
+  'A financial recommendation for the exact amount I should save.',
+]
+
+interface ComprehensionQuestion {
+  id: ComprehensionQuestionId
+  label: string
+  options: string[]
+  expected: string
+}
 
 function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`
@@ -296,6 +353,71 @@ interface LikertScaleProps {
   onChange: (value: number) => void
 }
 
+interface SelectQuestionProps {
+  id: string
+  question: string
+  value: string
+  options: string[]
+  onChange: (value: string) => void
+}
+
+function SelectQuestion({
+  id,
+  question,
+  value,
+  options,
+  onChange,
+}: SelectQuestionProps) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <label htmlFor={id} className="text-sm font-medium text-navy">
+        {question}
+      </label>
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-3 w-full rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-navy focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/30"
+      >
+        <option value="">Select one</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+function getFactorCheckOptions(
+  drivers: AssessmentPayload['drivers'],
+  direction: 'increase' | 'decrease'
+): { expected: string; options: string[] } {
+  const directionalDrivers = [...drivers]
+    .filter((driver) =>
+      direction === 'increase' ? driver.shap_value > 0 : driver.shap_value < 0
+    )
+    .sort((a, b) => Math.abs(b.shap_value) - Math.abs(a.shap_value))
+
+  const expected =
+    directionalDrivers[0]?.display_name ??
+    (direction === 'increase'
+      ? 'No factor increased the estimate.'
+      : 'No factor lowered the estimate.')
+
+  const distractors = [...drivers]
+    .map((driver) => driver.display_name)
+    .filter((name) => name !== expected)
+    .slice(0, 3)
+
+  const options = Array.from(new Set([expected, ...distractors])).sort((a, b) =>
+    a.localeCompare(b)
+  )
+
+  return { expected, options }
+}
+
 function LikertScale({ id, question, value, onChange }: LikertScaleProps) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -340,12 +462,26 @@ export default function AssessmentResultsPage() {
   const [loading, setLoading] = useState(true)
 
   const [surveyOpen, setSurveyOpen] = useState(false)
-  const [likertAnswers, setLikertAnswers] = useState<Record<string, number | null>>({
-    understood: null,
-    clarity: null,
-    trust: null,
+  const [likertAnswers, setLikertAnswers] = useState<
+    Record<LikertQuestionId, number | null>
+  >(() =>
+    Object.fromEntries(
+      LIKERT_QUESTIONS.map((question) => [question.id, null])
+    ) as Record<LikertQuestionId, number | null>
+  )
+  const [comprehensionAnswers, setComprehensionAnswers] = useState<
+    Record<ComprehensionQuestionId, string>
+  >({
+    most_increased_factor: '',
+    most_lowered_factor: '',
+    probability_represents: '',
   })
-  const [feedback, setFeedback] = useState('')
+  const [openEndedAnswers, setOpenEndedAnswers] = useState<
+    Record<OpenEndedQuestionId, string>
+  >({
+    most_helpful_part: '',
+    confusing_or_less_trust: '',
+  })
   const [surveySubmitting, setSurveySubmitting] = useState(false)
   const [surveySubmitted, setSurveySubmitted] = useState(false)
 
@@ -417,11 +553,60 @@ export default function AssessmentResultsPage() {
     loadAssessment()
   }, [])
 
-  const answeredCount = Object.values(likertAnswers).filter((v) => v !== null).length
-  const surveyProgress = Math.round((answeredCount / LIKERT_QUESTIONS.length) * 100)
+  const comprehensionChecks = useMemo<ComprehensionQuestion[]>(() => {
+    if (!assessment) {
+      return []
+    }
+    const mostIncreased = getFactorCheckOptions(assessment.drivers, 'increase')
+    const mostLowered = getFactorCheckOptions(assessment.drivers, 'decrease')
+
+    return [
+      {
+        id: 'most_increased_factor',
+        label: 'Which factor most increased the estimate?',
+        options: mostIncreased.options,
+        expected: mostIncreased.expected,
+      },
+      {
+        id: 'most_lowered_factor',
+        label: 'Which factor most lowered the estimate?',
+        options: mostLowered.options,
+        expected: mostLowered.expected,
+      },
+      {
+        id: 'probability_represents',
+        label: 'What does this probability represent?',
+        options: PROBABILITY_REPRESENTS_OPTIONS,
+        expected: PROBABILITY_REPRESENTS_OPTIONS[0],
+      },
+    ]
+  }, [assessment])
+
+  const expectedComprehensionAnswers = useMemo(
+    () =>
+      Object.fromEntries(
+        comprehensionChecks.map((question) => [question.id, question.expected])
+      ) as Record<ComprehensionQuestionId, string>,
+    [comprehensionChecks]
+  )
+
+  const likertAnsweredCount = Object.values(likertAnswers).filter((v) => v !== null).length
+  const comprehensionAnsweredCount = Object.values(comprehensionAnswers).filter(
+    (v) => v.trim().length > 0
+  ).length
+  const openEndedAnsweredCount = Object.values(openEndedAnswers).filter(
+    (v) => v.trim().length > 0
+  ).length
+
+  const totalQuestionCount = LIKERT_QUESTIONS.length + 3 + 2
+  const answeredCount =
+    likertAnsweredCount + comprehensionAnsweredCount + openEndedAnsweredCount
+  const surveyProgress = Math.round((answeredCount / totalQuestionCount) * 100)
   const canSubmitSurvey =
     assessment !== null &&
     LIKERT_QUESTIONS.every((q) => likertAnswers[q.id] !== null) &&
+    Object.values(comprehensionAnswers).every((v) => v.trim().length > 0) &&
+    Object.values(openEndedAnswers).every((v) => v.trim().length > 0) &&
     !surveySubmitting
 
   const handleSurveyOpen = (open: boolean) => {
@@ -444,12 +629,36 @@ export default function AssessmentResultsPage() {
         surveyStartedAt === null ? undefined : now.getTime() - surveyStartedAt.getTime()
 
       await submitSurveyResponse(assessment.assessment_id, {
-        survey_version: 'survey_v1',
+        survey_version: 'survey_v2',
         answers: {
-          understood_result: likertAnswers.understood as number,
-          explanation_clarity: likertAnswers.clarity as number,
-          trusted_result: likertAnswers.trust as number,
-          most_confusing_part: feedback.trim() || 'none',
+          understand_percentage_meaning:
+            likertAnswers.understand_percentage_meaning as number,
+          understand_why_result: likertAnswers.understand_why_result as number,
+          explain_main_factors: likertAnswers.explain_main_factors as number,
+          explanation_clear_readable:
+            likertAnswers.explanation_clear_readable as number,
+          explanation_detail_balance:
+            likertAnswers.explanation_detail_balance as number,
+          result_reasonable: likertAnswers.result_reasonable as number,
+          trust_result: likertAnswers.trust_result as number,
+          use_for_financial_habits:
+            likertAnswers.use_for_financial_habits as number,
+          understand_model_not_advice:
+            likertAnswers.understand_model_not_advice as number,
+          understand_scf_patterns: likertAnswers.understand_scf_patterns as number,
+          objective_most_increased_factor:
+            comprehensionAnswers.most_increased_factor,
+          objective_most_increased_factor_expected:
+            expectedComprehensionAnswers.most_increased_factor,
+          objective_most_lowered_factor: comprehensionAnswers.most_lowered_factor,
+          objective_most_lowered_factor_expected:
+            expectedComprehensionAnswers.most_lowered_factor,
+          objective_probability_represents:
+            comprehensionAnswers.probability_represents,
+          objective_probability_represents_expected:
+            expectedComprehensionAnswers.probability_represents,
+          most_helpful_part: openEndedAnswers.most_helpful_part.trim(),
+          most_confusing_part: openEndedAnswers.confusing_or_less_trust.trim(),
         },
         context: {
           time_on_results_ms: timeOnResultsMs,
@@ -707,18 +916,68 @@ export default function AssessmentResultsPage() {
                     ))}
 
                     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <p className="text-sm font-medium text-navy">
+                        Objective comprehension checks
+                      </p>
+                      <div className="mt-4 space-y-4">
+                        {comprehensionChecks.map((check) => (
+                          <SelectQuestion
+                            key={check.id}
+                            id={`survey-${check.id}`}
+                            question={check.label}
+                            value={comprehensionAnswers[check.id]}
+                            options={check.options}
+                            onChange={(value) =>
+                              setComprehensionAnswers((prev) => ({
+                                ...prev,
+                                [check.id]: value,
+                              }))
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                       <label
-                        htmlFor="survey-feedback"
+                        htmlFor="survey-most-helpful"
                         className="text-sm font-medium text-navy"
                       >
-                        What was confusing, if anything?
+                        What part of the result was most helpful?
                       </label>
                       <textarea
-                        id="survey-feedback"
+                        id="survey-most-helpful"
                         rows={4}
-                        value={feedback}
-                        onChange={(e) => setFeedback(e.target.value)}
-                        placeholder="Your feedback helps us provide more clarity..."
+                        value={openEndedAnswers.most_helpful_part}
+                        onChange={(e) =>
+                          setOpenEndedAnswers((prev) => ({
+                            ...prev,
+                            most_helpful_part: e.target.value,
+                          }))
+                        }
+                        placeholder="Share what helped you understand the result best..."
+                        className="mt-3 w-full resize-none rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-navy placeholder:text-text-muted focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/30"
+                      />
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <label
+                        htmlFor="survey-confusing"
+                        className="text-sm font-medium text-navy"
+                      >
+                        What part was confusing or made you less likely to trust the result?
+                      </label>
+                      <textarea
+                        id="survey-confusing"
+                        rows={4}
+                        value={openEndedAnswers.confusing_or_less_trust}
+                        onChange={(e) =>
+                          setOpenEndedAnswers((prev) => ({
+                            ...prev,
+                            confusing_or_less_trust: e.target.value,
+                          }))
+                        }
+                        placeholder="Tell us what felt unclear or reduced your trust..."
                         className="mt-3 w-full resize-none rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-navy placeholder:text-text-muted focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/30"
                       />
                     </div>
@@ -732,7 +991,7 @@ export default function AssessmentResultsPage() {
                       </div>
                     ) : (
                       <p className="text-xs text-text-muted">
-                        All rating questions are required.
+                        All survey questions are required.
                       </p>
                     )}
                     <Button
