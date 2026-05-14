@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 
-const DEFAULT_API_URL = "https://ana-600-capstone.onrender.com";
+const DEFAULT_API_URL = "https://finsight-assessment-api-1879fcf6be78.herokuapp.com/";
 
 export function getAssessmentApiBaseUrl(): string {
   const configuredUrl = process.env.NEXT_PUBLIC_ASSESSMENT_API_URL?.trim();
@@ -18,12 +18,12 @@ function buildApiUrl(path: string): string {
 
 async function buildHeaders(): Promise<HeadersInit> {
   const headers: HeadersInit = {
-    "Content-Type": "application/json",
+    "Content-Type": "application/json"
   };
 
   const supabase = createClient();
   const {
-    data: { session },
+    data: { session }
   } = await supabase.auth.getSession();
 
   if (session?.access_token) {
@@ -45,10 +45,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: {
         ...(await buildHeaders()),
-        ...(init?.headers ?? {}),
+        ...(init?.headers ?? {})
       },
       signal: init?.signal ?? controller.signal,
-      cache: "no-store",
+      cache: "no-store"
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
@@ -75,17 +75,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function normalizeAssessmentPayload(
-  payload: AssessmentPayload,
-): AssessmentPayload {
+function normalizeAssessmentPayload(payload: AssessmentPayload): AssessmentPayload {
   return {
     ...payload,
     explanation: {
       ...payload.explanation,
       factor_explanations: payload.explanation?.factor_explanations ?? [],
-      recommendation_scenarios:
-        payload.explanation?.recommendation_scenarios ?? [],
-    },
+      recommendation_scenarios: payload.explanation?.recommendation_scenarios ?? []
+    }
   };
 }
 
@@ -214,46 +211,36 @@ export interface SurveyReceiptPayload {
 }
 
 export async function createAssessment(
-  payload: AssessmentRequestPayload,
+  payload: AssessmentRequestPayload
 ): Promise<AssessmentPayload> {
   const response = await request<AssessmentPayload>("/v1/assessments", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload)
   });
   return normalizeAssessmentPayload(response);
 }
 
-export async function getAssessment(
-  assessmentId: string,
-): Promise<AssessmentPayload> {
-  const response = await request<AssessmentPayload>(
-    `/v1/assessments/${assessmentId}`,
-  );
+export async function getAssessment(assessmentId: string): Promise<AssessmentPayload> {
+  const response = await request<AssessmentPayload>(`/v1/assessments/${assessmentId}`);
   return normalizeAssessmentPayload(response);
 }
 
 export async function simulateAssessment(
   assessmentId: string,
-  payload: SimulateAssessmentRequestPayload,
+  payload: SimulateAssessmentRequestPayload
 ): Promise<SimulatedAssessmentPayload> {
-  return request<SimulatedAssessmentPayload>(
-    `/v1/assessments/${assessmentId}/simulations`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
+  return request<SimulatedAssessmentPayload>(`/v1/assessments/${assessmentId}/simulations`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function submitSurveyResponse(
   assessmentId: string,
-  payload: SurveyRequestPayload,
+  payload: SurveyRequestPayload
 ): Promise<SurveyReceiptPayload> {
-  return request<SurveyReceiptPayload>(
-    `/v1/assessments/${assessmentId}/survey-responses`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
+  return request<SurveyReceiptPayload>(`/v1/assessments/${assessmentId}/survey-responses`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
