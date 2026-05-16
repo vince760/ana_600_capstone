@@ -97,8 +97,9 @@ type OpenEndedQuestionId = 'most_helpful_part' | 'confusing_or_less_trust'
 
 const PROBABILITY_REPRESENTS_OPTIONS = [
   'The chance that households with similar patterns spend above income.',
-  'The chance that I will be denied a loan in the next month.',
-  'A financial recommendation for the exact amount I should save.',
+  'The percentage of my income that the model thinks I overspend.',
+  'A certainty that I personally will spend above income this month.',
+  'A comparison of my spending pattern to households with different financial profiles.',
 ]
 
 interface ComprehensionQuestion {

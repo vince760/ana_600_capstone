@@ -64,7 +64,10 @@ def _resolve_cors_origin_regex() -> str:
     if configured and configured.strip():
         return configured.strip()
 
-    return r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+    return (
+        r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+        r"|^https://.*\.vercel\.app$"
+    )
 
 
 def _resolve_store() -> AssessmentStore:
