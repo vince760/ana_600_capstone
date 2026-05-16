@@ -119,6 +119,20 @@ class AssessmentApiTests(unittest.TestCase):
             response.headers.get("access-control-allow-methods", ""),
         )
 
+    def test_cors_preflight_allows_vercel_preview_origins(self) -> None:
+        origin = "https://ana-600-capstone-git-backend-lab-team.vercel.app"
+        response = self.client.options(
+            "/v1/assessments",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("access-control-allow-origin"), origin)
+
     def test_create_and_fetch_assessment(self) -> None:
         create_response = self.client.post("/v1/assessments", json=SAMPLE_REQUEST)
 

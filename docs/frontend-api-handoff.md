@@ -327,6 +327,8 @@ survey with the same experiment arm as the original assessment.
   `FINSIGHT_CORS_ORIGINS` on the backend.
 - `FINSIGHT_CORS_ORIGINS` should contain the frontend origin, such as
   `https://your-vercel-app.vercel.app`, not the Heroku API origin by itself.
+- For Vercel preview URLs, the backend can use
+  `FINSIGHT_CORS_ORIGIN_REGEX=^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$|^https://.*\.vercel\.app$`.
 - If the API returns `401`, check the Supabase session and `Authorization`
   header.
 - If the API returns a CORS browser error, check the backend CORS env var and
