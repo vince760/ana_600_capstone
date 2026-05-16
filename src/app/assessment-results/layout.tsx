@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic'
 
-import { HelpCircle, UserCircle2 } from 'lucide-react'
+import { HelpCircle } from 'lucide-react'
 import { OnboardingSidebar } from '@/components/onboarding/onboarding-sidebar'
+import { AccountMenu } from '@/components/auth/account-menu'
 
 export default function AssessmentResultsLayout({
   children,
@@ -34,13 +35,7 @@ export default function AssessmentResultsLayout({
             >
               <HelpCircle className="h-5 w-5" />
             </button>
-            <button
-              type="button"
-              aria-label="Account"
-              className="rounded-full p-1 transition-colors hover:bg-slate-100 hover:text-navy"
-            >
-              <UserCircle2 className="h-5 w-5" />
-            </button>
+            <AccountMenu />
           </div>
         </header>
         <main className="flex-1 overflow-y-auto px-8 py-10 lg:px-16 lg:py-12">

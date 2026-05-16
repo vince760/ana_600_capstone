@@ -33,10 +33,17 @@ export function AuthForm({ mode }: AuthFormProps) {
     setLoading(true)
 
     if (isSignup) {
+      const appOrigin =
+        process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ??
+        window.location.origin
+      const emailRedirectTo = `${appOrigin}/login`
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { name } },
+        options: {
+          data: { name },
+          emailRedirectTo,
+        },
       })
       if (error) {
         setError('Could not create account. Please try again.')

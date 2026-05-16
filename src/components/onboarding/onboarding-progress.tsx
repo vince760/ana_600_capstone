@@ -1,8 +1,9 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { HelpCircle, UserCircle2 } from 'lucide-react'
+import { HelpCircle } from 'lucide-react'
 import { ONBOARDING_STEPS, TOTAL_STEPS } from '@/lib/onboarding/steps'
+import { AccountMenu } from '@/components/auth/account-menu'
 
 export function OnboardingProgress() {
   const pathname = usePathname()
@@ -36,13 +37,7 @@ export function OnboardingProgress() {
         >
           <HelpCircle className="h-5 w-5" />
         </button>
-        <button
-          type="button"
-          aria-label="Account"
-          className="rounded-full p-1 transition-colors hover:bg-slate-100 hover:text-navy"
-        >
-          <UserCircle2 className="h-5 w-5" />
-        </button>
+        <AccountMenu />
       </div>
     </header>
   )
