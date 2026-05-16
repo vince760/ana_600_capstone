@@ -37,7 +37,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '') ??
         window.location.origin
       const emailRedirectTo = `${appOrigin}/login`
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -50,6 +50,13 @@ export function AuthForm({ mode }: AuthFormProps) {
         setLoading(false)
         return
       }
+
+      if (data.session) {
+        router.push(FIRST_ONBOARDING_ROUTE)
+        router.refresh()
+        return
+      }
+
       setSignupSuccess(true)
       setLoading(false)
       return
